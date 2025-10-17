@@ -2,6 +2,25 @@ use da_boot_macros::Protocol;
 
 use crate::err::Error;
 
+#[derive(Default, Protocol)]
+#[protocol(command = 0xd8)]
+pub(crate) struct GetTargetConfig {
+    #[protocol(rx)]
+    config: u32,
+    #[protocol(rx, status = 0)]
+    status: u16,
+}
+
+impl GetTargetConfig {
+    pub fn parse(&self) -> (bool, bool, bool) {
+        (
+            self.config & 0x1 != 0,
+            self.config & 0x2 != 0,
+            self.config & 0x4 != 0,
+        )
+    }
+}
+
 /// A command to upload Download Agent to the device
 ///
 /// Once the preloader patcher was ran, the `addr` field is handled properly, otherwise preloader overwrites it with the `DA_ADDR` constant

@@ -7,6 +7,17 @@ macro_rules! log {
 }
 
 #[macro_export]
+macro_rules! y_n_reverse {
+    ($fmt:literal, $bool:expr) => {{
+        if $bool {
+            println!("{}: {}", $fmt, "yes".red());
+        } else {
+            println!("{}: {}", $fmt, "no".green());
+        }
+    }};
+}
+
+#[macro_export]
 macro_rules! status {
     ($code:expr) => {{
         let ret = $code;

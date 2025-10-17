@@ -14,7 +14,7 @@ use derive_more::IsVariant;
 use serialport::{SerialPort, SerialPortInfo, SerialPortType, available_ports};
 
 use crate::{
-    commands::{JumpDA, Read32, SendDA},
+    commands::{GetTargetConfig, JumpDA, Read32, SendDA},
     err::Error,
 };
 
@@ -214,6 +214,18 @@ fn run(cli: Cli) -> Result<()> {
     let mut buf = [0; 20];
     port.read(&mut buf)?;
     handshake(&mut port)?;
+
+    let mut payload = GetTargetConfig::new();
+    // mt6572 workaround
+    if let Err(_) = payload.run(&mut port) {
+        drop(port);
+        return run(cli);
+    }
+
+    let (sbc, sla, daa) = payload.parse();
+    y_n_reverse!("SBC enabled", sbc);
+    y_n_reverse!("SLA enabled", sla);
+    y_n_reverse!("DAA enabled", daa);
 
     let (no_patcher, payload) = match &cli.command {
         Command::Boot {
