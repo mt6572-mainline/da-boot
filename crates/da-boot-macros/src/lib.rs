@@ -293,7 +293,11 @@ pub fn da_legacy(input: TokenStream) -> TokenStream {
             }
         }
     } else {
-        quote! {}
+        quote! {
+            pub fn new() -> Self {
+                Self { ..Default::default() }
+            }
+        }
     };
 
     let code = fields
