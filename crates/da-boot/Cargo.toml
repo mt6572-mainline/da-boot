@@ -4,11 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-bincode = "2.0.1"
-clap = { version = "4.5.48", features = ["derive"] }
-clap-num = "1.2.0"
+bincode = { workspace = true }
+clap = { workspace = true }
+clap-num = { workspace = true }
 colored = "3.0.0"
 serialport = "4.7.3"
-thiserror = "2.0.16"
+thiserror = { workspace = true }
 derive_more = { workspace = true }
 da-boot-macros = { path = "../da-boot-macros" }

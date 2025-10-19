@@ -212,6 +212,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "da-parser"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "clap",
+ "clap-num",
+ "derive-ctor",
+ "thiserror",
+]
+
+[[package]]
 name = "darling"
 version = "0.21.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -1,0 +1,15 @@
+[package]
+name = "da-parser"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "dump"
+path = "src/dump.rs"
+
+[dependencies]
+bincode = { workspace = true }
+thiserror = { workspace = true }
+derive-ctor = { workspace = true }
+clap = { workspace = true }
+clap-num = { workspace = true }
