@@ -5,9 +5,9 @@ Boot U-Boot (or any other bare-metal binary) as DA on MediaTek MT6572
 ## Booting generic bare-metal payload
 ### With preloader patcher
 ```
-cd payload
-make
-cd ..
+cd payloads/preloader
+./build.sh
+cd ../..
 cargo r --release -p da-boot -- boot -i bin1 -u 0x82000000 -j 0x82000000
 ```
 You can also specify more payloads to upload like:

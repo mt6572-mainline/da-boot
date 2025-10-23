@@ -1,5 +1,4 @@
 .syntax unified
-
 .code 32
 
 .global start

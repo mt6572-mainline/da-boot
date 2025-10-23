@@ -240,11 +240,14 @@ fn run(cli: Cli) -> Result<()> {
                 fs::read(if no_patcher {
                     &input[0]
                 } else {
-                    Path::new("payload/preloader_patcher.bin")
+                    Path::new("target/armv7a-none-eabi/release/preloader")
                 })?,
             )
         }
-        Command::DumpPreloader => (false, fs::read(Path::new("payload/preloader_patcher.bin"))?),
+        Command::DumpPreloader => (
+            false,
+            fs::read(Path::new("target/armv7a-none-eabi/release/preloader"))?,
+        ),
     };
 
     if no_patcher {
