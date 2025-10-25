@@ -9,10 +9,8 @@ use core::{
     ptr,
 };
 
-const MT6572_UART0_LSR: usize = 0x11005000 + 0x14;
-const MT6572_UART0_THR: usize = 0x11005000;
+use shared::{PRELOADER_BASE, uart_print, uart_println, uart_putc};
 
-const PRELOADER_BASE: usize = 0x2007500;
 const PRELOADER_END: usize = PRELOADER_BASE + 0x10000;
 
 const DLCOMPORT_PTR: usize = 0x2000828;
@@ -21,22 +19,6 @@ const DLCOMPORT_PTR: usize = 0x2000828;
 const CACHE_LINE: usize = 64;
 
 global_asm!(include_str!("start.S"));
-
-macro_rules! uart_print {
-    ($s:expr) => {{
-        for c in $s.chars() {
-            uart_putc(c);
-        }
-    }};
-}
-
-macro_rules! uart_println {
-    ($s:expr) => {{
-        uart_print!($s);
-        uart_putc('\n');
-        uart_putc('\r');
-    }};
-}
 
 macro_rules! patch {
     ($addr:expr, $val:expr) => {{
@@ -115,13 +97,6 @@ unsafe fn flush_cache(addr: usize) {
 fn panic_handler(_: &PanicInfo) -> ! {
     uart_println!("Panic :(");
     loop {}
-}
-
-fn uart_putc(c: char) {
-    unsafe {
-        while (ptr::read_volatile(MT6572_UART0_LSR as *const u32) & 0x20) == 0 {}
-        ptr::write_volatile(MT6572_UART0_THR as *mut u32, c as u32);
-    }
 }
 
 unsafe fn is_movs(addr: usize) -> bool {

@@ -1,7 +1,6 @@
 [package]
-name = "preloader"
+name = "shared"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-shared = { path = "../shared" }
