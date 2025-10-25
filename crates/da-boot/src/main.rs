@@ -15,7 +15,10 @@ use serialport::{SerialPort, SerialPortInfo, SerialPortType, available_ports};
 use shared::PRELOADER_BASE;
 
 use crate::{
-    commands::{GetTargetConfig, JumpDA, Read32, SendDA},
+    commands::{
+        custom_brom::{RunPayload, Sync},
+        preloader::{GetTargetConfig, JumpDA, Read32, SendDA},
+    },
     err::Error,
 };
 
@@ -352,13 +355,7 @@ fn run(mut cli: Cli, previous_mode: Option<DeviceMode>) -> Result<()> {
 
     if device_mode.is_brom() {
         log!("Trying to sync with brom payload...");
-        port.write_all(&u32::to_be_bytes(0x1337))?;
-        let mut buf = [0; 2];
-        port.read_exact(&mut buf)?;
-        if u16::from_be_bytes(buf) != 0x1337 {
-            return Err(Error::Custom("Failed syncing with brom".into()));
-        }
-        println!("ok");
+        status!(Sync::new(0x1337).run(&mut port))?;
 
         if cli.only_brom {
             return Ok(());
@@ -391,17 +388,10 @@ fn run(mut cli: Cli, previous_mode: Option<DeviceMode>) -> Result<()> {
             }
 
             log!("Booting preloader at {PRELOADER_BASE:#x}...");
-            port.write_all(&(PRELOADER_BASE as u32).to_be_bytes())?;
-            port.write_all(&(payload.len() as u32).to_be_bytes())?;
-            port.write_all(&payload)?;
-
-            port.read_exact(&mut buf)?;
-            if u16::from_be_bytes(buf) != 0 {
-                return Err(Error::Custom(
-                    "Failed uploading payload in the brom mode".into(),
-                ));
-            }
-            println!("ok");
+            status!(
+                RunPayload::new(PRELOADER_BASE as u32, payload.len() as u32, &payload)
+                    .run(&mut port)
+            )?;
             println!("Jumping to {PRELOADER_BASE:#x}...");
             cli.crash = false;
             drop(port);
