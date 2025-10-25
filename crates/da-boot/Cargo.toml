@@ -12,3 +12,4 @@ serialport = "4.7.3"
 thiserror = { workspace = true }
 derive_more = { workspace = true }
 da-boot-macros = { path = "../da-boot-macros" }
+shared = { path = "../../payloads/shared" }

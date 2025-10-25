@@ -12,6 +12,7 @@ use clap_num::maybe_hex;
 use colored::Colorize;
 use derive_more::IsVariant;
 use serialport::{SerialPort, SerialPortInfo, SerialPortType, available_ports};
+use shared::PRELOADER_BASE;
 
 use crate::{
     commands::{GetTargetConfig, JumpDA, Read32, SendDA},
@@ -27,7 +28,8 @@ type Port = Box<dyn SerialPort>;
 
 const HANDSHAKE: [u8; 3] = [0x0a, 0x50, 0x05];
 
-const DA_ADDR: u32 = 0x81e00000;
+const DA_SRAM_ADDR: u32 = 0x2007000;
+const DA_DRAM_ADDR: u32 = 0x81e00000;
 const BOOT_ARG_ADDR: u32 = 0x800d0000;
 
 trait DA {
@@ -83,9 +85,21 @@ enum Mode {
 #[derive(Parser)]
 #[command(version)]
 struct Cli {
+    /// Force brom mode
+    #[arg(short, long)]
+    crash: bool,
+
     /// Force booting preloader patcher
     #[arg(short, long)]
     force: bool,
+
+    /// Force skip preloader stage and directly boot the binary in the brom mode
+    #[arg(long)]
+    only_brom: bool,
+
+    /// Preloader path
+    #[arg(short, long)]
+    preloader: Option<PathBuf>,
 
     #[command(subcommand)]
     command: Command,
@@ -151,19 +165,39 @@ impl BootArgument {
     }
 }
 
-fn get_ports() -> Result<Vec<SerialPortInfo>> {
+#[derive(Debug, Copy, Clone, IsVariant)]
+enum DeviceMode {
+    Brom,
+    Preloader,
+}
+
+fn get_ports() -> Result<Vec<(DeviceMode, SerialPortInfo)>> {
     Ok(available_ports()?
         .into_iter()
-        .filter(|p| match &p.port_type {
-            SerialPortType::UsbPort(p) => p.vid == 0x0e8d && p.pid == 0x2000,
-            _ => false,
+        .filter_map(|s| match &s.port_type {
+            SerialPortType::UsbPort(p) => {
+                let is_target = p.pid == 0x2000 || p.pid == 0x0003;
+                if p.vid == 0x0e8d && is_target {
+                    Some((
+                        if p.pid == 0x0003 {
+                            DeviceMode::Brom
+                        } else {
+                            DeviceMode::Preloader
+                        },
+                        s,
+                    ))
+                } else {
+                    None
+                }
+            }
+            _ => None,
         })
         .collect())
 }
 
-fn open_port() -> Result<Port> {
-    log!("Waiting for the preloader interface");
-    let port = loop {
+fn open_port() -> Result<(DeviceMode, Port)> {
+    log!("Waiting for the device");
+    let (mode, port) = loop {
         let ports = get_ports()?;
 
         if ports.len() > 1 {
@@ -179,9 +213,19 @@ fn open_port() -> Result<Port> {
     };
 
     println!("Found device at {}", &port.port_name);
-    Ok(serialport::new(port.port_name, 921600)
-        .timeout(Duration::from_millis(2000))
-        .open()?)
+    Ok((
+        mode,
+        serialport::new(port.port_name, 921600)
+            .timeout(Duration::from_millis(2000))
+            .open()?,
+    ))
+}
+
+fn crash_to_brom(port: &mut Port) -> Result<()> {
+    match Read32::new(0x0, 1).run(port) {
+        Err(Error::Io(_)) => Ok(()),
+        _ => Err(Error::Custom("Retry".into())),
+    }
 }
 
 fn handshake(port: &mut Port) -> Result<()> {
@@ -207,19 +251,35 @@ fn handshake(port: &mut Port) -> Result<()> {
     Ok(())
 }
 
-fn run(cli: Cli) -> Result<()> {
-    let mut port = open_port()?;
+fn get_patcher<'a>(mode: DeviceMode) -> &'a Path {
+    match mode {
+        DeviceMode::Brom => Path::new("target/armv7a-none-eabi/release/brom"),
+        DeviceMode::Preloader => Path::new("target/armv7a-none-eabi/release/preloader"),
+    }
+}
 
-    /* Read "READY", just to be safe let's expect it may appear up to 4 times */
-    let mut buf = [0; 20];
-    port.read(&mut buf)?;
+fn get_da_addr(mode: DeviceMode) -> u32 {
+    match mode {
+        DeviceMode::Brom => DA_SRAM_ADDR,
+        DeviceMode::Preloader => DA_DRAM_ADDR,
+    }
+}
+
+fn run(mut cli: Cli, previous_mode: Option<DeviceMode>) -> Result<()> {
+    let (device_mode, mut port) = open_port()?;
+
+    if device_mode.is_preloader() {
+        /* Read "READY", just to be safe let's expect it may appear up to 4 times */
+        let mut buf = [0; 20];
+        let _ = port.read(&mut buf);
+    }
     handshake(&mut port)?;
 
     let mut payload = GetTargetConfig::new();
     // mt6572 workaround
     if let Err(_) = payload.run(&mut port) {
         drop(port);
-        return run(cli);
+        return run(cli, previous_mode);
     }
 
     let (sbc, sla, daa) = payload.parse();
@@ -227,44 +287,129 @@ fn run(cli: Cli) -> Result<()> {
     y_n_reverse!("SLA enabled", sla);
     y_n_reverse!("DAA enabled", daa);
 
+    let protected = sbc || sla || daa;
+    if device_mode.is_preloader() && (protected || cli.crash || cli.only_brom) {
+        if protected {
+            println!("Device is protected, trying brom mode");
+        }
+
+        log!("Crashing to brom mode...");
+        status!(crash_to_brom(&mut port))?;
+        drop(port);
+        sleep(Duration::from_millis(100));
+        println!();
+        return run(cli, Some(device_mode));
+    } else if device_mode.is_brom() && protected {
+        return Err(Error::Custom(
+            "Device is protected, kamakiri is required :(".into(),
+        ));
+    }
+
+    if let Some(pmode) = previous_mode {
+        if pmode.is_brom() && device_mode.is_preloader() && !protected {
+            println!("Successfully booted patched preloader through brom");
+        }
+    }
+
+    let patcher = get_patcher(device_mode);
     let (no_patcher, payload) = match &cli.command {
         Command::Boot {
             upload_address,
             input,
             ..
         } => {
-            let no_patcher =
-                upload_address.len() == 1 && upload_address[0] == DA_ADDR && !cli.force;
+            let da_addr = upload_address[0];
+            // Without patcher we can upload only one binary
+            let no_patcher = upload_address.len() == 1
+                // If we're in preloader mode, address must match DRAM addr
+                && ((da_addr == DA_DRAM_ADDR && device_mode.is_preloader())
+                    // If we're in brom mode, address must match SRAM addr
+                    || (da_addr == DA_SRAM_ADDR && device_mode.is_brom()))
+                // We must not force patcher
+                && !cli.force
+                // BROM patcher disables restriction for the payload size,
+                // so we can boot preloader and possibly U-Boot SPL
+                && device_mode.is_preloader();
             (
                 no_patcher,
-                fs::read(if no_patcher {
-                    &input[0]
-                } else {
-                    Path::new("target/armv7a-none-eabi/release/preloader")
-                })?,
+                fs::read(if no_patcher { &input[0] } else { patcher })?,
             )
         }
-        Command::DumpPreloader => (
-            false,
-            fs::read(Path::new("target/armv7a-none-eabi/release/preloader"))?,
-        ),
+        Command::DumpPreloader => (false, fs::read(patcher)?),
     };
 
-    if no_patcher {
+    if device_mode.is_preloader() && no_patcher {
         println!(
             "Preloader won't be patched, some commands may be not available due to security checks"
         );
     }
 
-    log!("Uploading payload to {DA_ADDR:#x}...");
-    if let Err(e) = status!(SendDA::new(DA_ADDR, payload.len() as u32, 0, &payload).run(&mut port))
-    {
-        eprintln!("{e}");
-        drop(port);
-        return run(cli);
+    let da_addr = get_da_addr(device_mode);
+    log!("Uploading payload to {da_addr:#x}...");
+    status!(SendDA::new(da_addr, payload.len() as u32, 0, &payload).run(&mut port))?;
+    log!("Jumping to {da_addr:#x}...");
+    status!(JumpDA::new(da_addr).run(&mut port))?;
+
+    if device_mode.is_brom() {
+        log!("Trying to sync with brom payload...");
+        port.write_all(&u32::to_be_bytes(0x1337))?;
+        let mut buf = [0; 2];
+        port.read_exact(&mut buf)?;
+        if u16::from_be_bytes(buf) != 0x1337 {
+            return Err(Error::Custom("Failed syncing with brom".into()));
+        }
+        println!("ok");
+
+        if cli.only_brom {
+            return Ok(());
+        }
+
+        let needs_dram_init = match &cli.command {
+            Command::Boot {
+                upload_address,
+                jump_address,
+                ..
+            } => {
+                upload_address.iter().any(|u| *u > DA_SRAM_ADDR)
+                    || jump_address.is_some_and(|j| j > DA_SRAM_ADDR)
+            }
+            Command::DumpPreloader => true,
+        };
+        if needs_dram_init {
+            println!("DRAM init is required for the specified payload");
+
+            let mut payload = match cli.preloader {
+                Some(ref p) => fs::read(p)?,
+                None => return Err(Error::Custom("Preloader is required from DRAM init".into())),
+            };
+            payload.truncate(131 * 1024);
+            let pad = payload.len() % 4;
+            if pad != 0 {
+                for _ in 0..4 - pad {
+                    payload.push(0);
+                }
+            }
+
+            log!("Booting preloader at {PRELOADER_BASE:#x}...");
+            port.write_all(&(PRELOADER_BASE as u32).to_be_bytes())?;
+            port.write_all(&(payload.len() as u32).to_be_bytes())?;
+            port.write_all(&payload)?;
+
+            port.read_exact(&mut buf)?;
+            if u16::from_be_bytes(buf) != 0 {
+                return Err(Error::Custom(
+                    "Failed uploading payload in the brom mode".into(),
+                ));
+            }
+            println!("ok");
+            println!("Jumping to {PRELOADER_BASE:#x}...");
+            cli.crash = false;
+            drop(port);
+            sleep(Duration::from_millis(100));
+            println!();
+            return run(cli, previous_mode);
+        }
     }
-    log!("Jumping to {DA_ADDR:#x}...");
-    status!(JumpDA::new(DA_ADDR).run(&mut port))?;
 
     if !no_patcher {
         log!("Trying to sync with patched preloader...");
@@ -305,7 +450,7 @@ fn run(cli: Cli) -> Result<()> {
                     )?;
                 }
 
-                let jump = jump_address.unwrap_or(DA_ADDR);
+                let jump = jump_address.unwrap_or(get_da_addr(device_mode));
                 log!("Jumping to {jump:#x}...");
                 status!(JumpDA::new(jump).run(&mut port))?;
             }
@@ -342,5 +487,7 @@ fn main() -> Result<()> {
         _ => (),
     }
 
-    run(cli)
+    println!("For BROM mode short KCOL0 to the GND or add the crash option and connect the device");
+    println!("For preloader mode simply connect the device");
+    run(cli, None)
 }
