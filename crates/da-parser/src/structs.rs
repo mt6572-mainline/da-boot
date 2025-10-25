@@ -71,10 +71,14 @@ impl Verify for DAEntry {
 #[derive(Decode)]
 #[repr(C)]
 pub(crate) struct DALoadRegion {
+    /// Code offset
     pub start: u32,
+    /// Code size
     pub len: u32,
+    /// Code base address
     pub base: u32,
     offset: u32,
+    /// Signature size
     sig_len: u32,
 }
 
