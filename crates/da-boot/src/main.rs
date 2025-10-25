@@ -397,7 +397,7 @@ fn run(mut cli: Cli, previous_mode: Option<DeviceMode>) -> Result<()> {
             drop(port);
             sleep(Duration::from_millis(100));
             println!();
-            return run(cli, previous_mode);
+            return run(cli, Some(device_mode));
         }
     }
 
