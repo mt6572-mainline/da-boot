@@ -8,7 +8,7 @@ use syn::{Data, DeriveInput, Fields, Ident, Type, parse_macro_input};
 #[derive(Debug, FromDeriveInput)]
 #[darling(attributes(protocol), supports(struct_named))]
 struct ProtocolArgs {
-    command: u8,
+    command: Option<u8>,
 }
 
 #[derive(Debug, FromField)]
@@ -225,7 +225,6 @@ pub fn da_legacy(input: TokenStream) -> TokenStream {
         Ok(val) => val,
         Err(e) => return e.write_errors().into(),
     };
-    let command = args.command;
 
     let fields = match input.data {
         Data::Struct(data) => match data.fields {
@@ -370,16 +369,20 @@ pub fn da_legacy(input: TokenStream) -> TokenStream {
         })
         .collect::<Vec<_>>();
 
-    let ident = format_ident!("command");
-    let command_code = Codegen::new(CodegenType::U8, ident.clone(), false)
-        .load()
-        .tx()
-        .rx()
-        .echo_status()
-        .finalize();
-    let command = quote! {
-        let #ident = #command;
-        #command_code
+    let command = if let Some(command) = args.command {
+        let ident = format_ident!("command");
+        let command_code = Codegen::new(CodegenType::U8, ident.clone(), false)
+            .load()
+            .tx()
+            .rx()
+            .echo_status()
+            .finalize();
+        quote! {
+            let #ident = #command;
+            #command_code
+        }
+    } else {
+        quote! {}
     };
 
     let expanded = quote! {
