@@ -47,3 +47,6 @@ cargo r --release -p da-parser -- --input /path/to/DA_PL.bin --output da
 Add `--hw-code` parameter to filter the SoC
 
 Sometimes `send_da` fails due to preloader sending garbage data (observed on MT8135 as well). If that happens, simply reset the device.
+
+## Patching preloader
+Strip 0xb00 bytes (preloader header) and run `cargo r --release -p da-patcher -- -i /path/to/preloader_without_header.bin -o preloader.bin`
