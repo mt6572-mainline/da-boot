@@ -1,0 +1,16 @@
+[package]
+name = "da-patcher"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "da-patcher"
+path = "src/main.rs"
+
+[dependencies]
+thiserror = { workspace = true }
+derive-ctor = { workspace = true }
+clap = { workspace = true }
+hexpatch-keystone = "0.9.4"
+capstone = "0.13.0"
+regex = "1.12.2"
