@@ -79,7 +79,7 @@ pub(crate) struct DALoadRegion {
     pub base: u32,
     offset: u32,
     /// Signature size
-    sig_len: u32,
+    pub sig_len: u32,
 }
 
 impl Verify for DALoadRegion {

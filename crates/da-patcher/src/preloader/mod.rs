@@ -14,15 +14,15 @@ pub mod send_da;
 
 /// Preloader patches
 pub enum PreloaderPatches<'a> {
-    /// sec_region_check function patch
+    /// `sec_region_check` function patch
     SecRegionCheck(SecRegionCheck<'a>),
-    /// send_da command patch
+    /// `send_da` command patch
     SendDA(SendDA<'a>),
-    /// jump_da command patch
+    /// `jump_da` command patch
     JumpDA(JumpDA<'a>),
-    /// jump_da boot argument address patch
+    /// `jump_da` boot argument address patch
     DABootArgument(DABootArgument<'a>),
-    /// seclib_sec_usbdl_enabled function patch
+    /// `seclib_sec_usbdl_enabled` function patch
     DAA(DAA<'a>),
 }
 
@@ -54,6 +54,7 @@ impl<'a> PreloaderPatches<'a> {
     }
 
     /// Message when the patch is applied
+    #[must_use]
     pub fn on_success(&self) -> &'static str {
         match self {
             Self::SecRegionCheck(p) => Self::on_success_internal(p),
@@ -65,6 +66,7 @@ impl<'a> PreloaderPatches<'a> {
     }
 
     /// Message when the patch is failed to apply
+    #[must_use]
     pub fn on_failure(&self) -> &'static str {
         match self {
             Self::SecRegionCheck(p) => Self::on_failure_internal(p),

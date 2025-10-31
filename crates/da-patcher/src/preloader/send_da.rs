@@ -1,6 +1,6 @@
 use crate::{Assembler, Disassembler, Patch, PatchMessage, Result, err::Error, replace, search};
 
-/// Disable hardcoded value in the send_da command
+/// Disable hardcoded value in the `send_da` command
 pub struct SendDA<'a> {
     assembler: &'a Assembler,
     disassembler: &'a Disassembler<'a>,
@@ -41,7 +41,7 @@ impl<'a> Patch<'a> for SendDA<'a> {
         let offset = self.offset(bytes)?;
         let bytes = &bytes[offset..offset + 2];
         let instr = &self.disassembler.thumb2(bytes)?[0];
-        self.assembler.thumb2(format!(
+        self.assembler.thumb2(&format!(
             "ldr {}",
             instr.op_str().ok_or(Error::InstrOpNotAvailable)?
         ))

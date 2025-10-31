@@ -15,10 +15,10 @@ pub enum Error {
     /// I/O error
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
-    /// capstone crate error
+    /// `capstone` crate error
     #[error("Capstone error: {0}")]
     Capstone(#[from] capstone::Error),
-    /// hexpatch_keystone crate error
+    /// `hexpatch_keystone` crate error
     #[error("Keystone error: {0}")]
     Keystone(hexpatch_keystone::Error),
     /// Parse int error

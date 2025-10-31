@@ -2,7 +2,7 @@ use capstone::Instructions;
 
 use crate::{Assembler, Disassembler, Patch, PatchMessage, Result, err::Error, replace, search};
 
-/// Disable hardcoded value in the jump_da command
+/// Disable hardcoded value in the `jump_da` command
 pub struct JumpDA<'a> {
     assembler: &'a Assembler,
     disassembler: &'a Disassembler<'a>,
@@ -64,7 +64,7 @@ impl<'a> Patch<'a> for JumpDA<'a> {
                 "nop;".repeat(nop_count - 3)
             )
         };
-        self.assembler.thumb2(pattern)
+        self.assembler.thumb2(&pattern)
     }
 
     fn patch(&self, bytes: &mut [u8]) -> Result<()> {
@@ -82,7 +82,7 @@ impl JumpDA<'_> {
                     + (2 * instr
                         .iter()
                         // in jump_da all 32-bit instructions have dot
-                        .filter(|i| i.mnemonic().is_some_and(|m| m.contains(".")))
+                        .filter(|i| i.mnemonic().is_some_and(|m| m.contains('.')))
                         .count()));
             }
         }

@@ -109,7 +109,7 @@ impl Codegen {
             quote! { let tmp = #from; }
         };
 
-        self.tokenstream.extend(stream.into_iter());
+        self.tokenstream.extend(stream);
 
         self
     }
@@ -122,7 +122,7 @@ impl Codegen {
             quote! { #to = tmp; }
         };
 
-        self.tokenstream.extend(stream.into_iter());
+        self.tokenstream.extend(stream);
 
         self
     }
@@ -134,7 +134,7 @@ impl Codegen {
             }
         };
 
-        self.tokenstream.extend(stream.into_iter());
+        self.tokenstream.extend(stream);
 
         self
     }
@@ -154,7 +154,7 @@ impl Codegen {
         }
         .unwrap();
 
-        self.tokenstream.extend(stream.into_iter());
+        self.tokenstream.extend(stream);
 
         self
     }
@@ -180,7 +180,7 @@ impl Codegen {
         }
         .unwrap();
 
-        self.tokenstream.extend(stream.into_iter());
+        self.tokenstream.extend(stream);
 
         self
     }
@@ -199,13 +199,13 @@ impl Codegen {
 
         };
 
-        self.tokenstream.extend(stream.into_iter());
+        self.tokenstream.extend(stream);
 
         self
     }
 
     pub fn push(mut self, stream: proc_macro2::TokenStream) -> Self {
-        self.tokenstream.extend(stream.into_iter());
+        self.tokenstream.extend(stream);
 
         self
     }
@@ -246,7 +246,7 @@ pub fn da_legacy(input: TokenStream) -> TokenStream {
         .into_iter()
         .filter_map(|f| {
             let attrs = ProtocolField::from_field(&f)
-                .map_err(|e| e.write_errors())
+                .map_err(darling::Error::write_errors)
                 .unwrap();
             let ident = f.ident.unwrap();
             let ty = f.ty;
@@ -269,7 +269,13 @@ pub fn da_legacy(input: TokenStream) -> TokenStream {
         .iter()
         .filter(|f| f.enum_ty.is_tx() || f.enum_ty.is_echo())
         .collect::<Vec<_>>();
-    let ctor = if !tx_echo_fields.is_empty() {
+    let ctor = if tx_echo_fields.is_empty() {
+        quote! {
+            pub fn new() -> Self {
+                Self { ..Default::default() }
+            }
+        }
+    } else {
         let args = tx_echo_fields
             .iter()
             .map(|f| {
@@ -291,12 +297,6 @@ pub fn da_legacy(input: TokenStream) -> TokenStream {
                 Self { #(#self_args,)* ..Default::default() }
             }
         }
-    } else {
-        quote! {
-            pub fn new() -> Self {
-                Self { ..Default::default() }
-            }
-        }
     };
 
     let code = fields
@@ -313,9 +313,9 @@ pub fn da_legacy(input: TokenStream) -> TokenStream {
                             let inner = CodegenType::try_from(
                                 f.ty.to_token_stream()
                                     .to_string()
-                                    .replace(" ", "")
+                                    .replace(' ', "")
                                     .replace("Vec<", "")
-                                    .replace(">", "")
+                                    .replace('>', "")
                                     .as_str(),
                             )
                             .unwrap();
@@ -355,7 +355,7 @@ pub fn da_legacy(input: TokenStream) -> TokenStream {
                         .to_token_stream()
                         .to_string()
                         .trim()
-                        .replace("&", "")
+                        .replace('&', "")
                         .as_str(),
                 )
                 .unwrap(),

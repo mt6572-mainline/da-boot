@@ -41,12 +41,14 @@ impl Display for DA {
 pub struct DARegion {
     pub base: u32,
     pub code: Vec<u8>,
+    pub is_signed: bool,
 }
 
 impl Display for DARegion {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Base address: {:#x}\n", self.base)?;
-        write!(f, "Code length: {:#x}\n", self.code.len())
+        write!(f, "Code length: {:#x}\n", self.code.len())?;
+        write!(f, "Signed: {}\n", if self.is_signed { "yes" } else { "no" })
     }
 }
 
@@ -74,6 +76,7 @@ pub fn parse(data: &[u8]) -> Result<Vec<DA>> {
             regions.push(DARegion::new(
                 region.base,
                 data[region.start as usize..(region.start + region.len) as usize].to_vec(),
+                region.sig_len != 0,
             ));
         }
 

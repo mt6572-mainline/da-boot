@@ -29,12 +29,12 @@ impl Assembler {
     }
 
     /// Assemble `code` to Thumb2 instructions
-    pub(crate) fn thumb2<T: ToString>(&self, code: T) -> Result<Vec<u8>> {
+    pub(crate) fn thumb2<T: ToString + ?Sized>(&self, code: &T) -> Result<Vec<u8>> {
         Ok(self.thumb2.asm(code.to_string(), 0)?.bytes)
     }
 
     /// Assemble `code` to arm instructions
-    pub(crate) fn arm<T: ToString>(&self, code: T) -> Result<Vec<u8>> {
+    pub(crate) fn arm<T: ToString + ?Sized>(&self, code: &T) -> Result<Vec<u8>> {
         Ok(self.arm.asm(code.to_string(), 0)?.bytes)
     }
 }
@@ -109,17 +109,11 @@ pub trait PatchCollection<'a, T: Sized> {
 /// Returns `None` if not found
 #[inline]
 fn search(slice: &[u8], pattern: &[u8]) -> Option<usize> {
-    for i in 0..slice.len() {
-        if slice[i..].starts_with(pattern) {
-            return Some(i);
-        }
-    }
-
-    None
+    (0..slice.len()).find(|&i| slice[i..].starts_with(pattern))
 }
 
 /// Replace in `slice` starting with `at` position with `replacement`
 #[inline]
 fn replace(slice: &mut [u8], at: usize, replacement: &[u8]) {
-    slice[at..at + replacement.len()].clone_from_slice(replacement)
+    slice[at..at + replacement.len()].clone_from_slice(replacement);
 }
