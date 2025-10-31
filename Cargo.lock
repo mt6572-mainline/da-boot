@@ -250,6 +250,7 @@ dependencies = [
  "colored",
  "da-boot-macros",
  "da-patcher",
+ "derive-ctor",
  "derive_more",
  "serialport",
  "shared",

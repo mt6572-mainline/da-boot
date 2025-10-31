@@ -13,6 +13,10 @@ pub enum Error {
     #[error("Invalid status! Expected {0}, got {1}")]
     InvalidStatus(u16, u16),
 
+    /// da-patcher error
+    #[error("da-patcher error: {0}")]
+    DAPatcher(#[from] da_patcher::err::Error),
+
     /// I/O error
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
