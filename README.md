@@ -1,6 +1,12 @@
 # da-boot
 Boot U-Boot (or any other bare-metal binary) as DA on MediaTek MT6572
 
+# Installation
+- Make sure Rust and C++ compilers, python, cmake, make and `llvm-objcopy` are available on the host
+- Install nightly toolchain: `rustup toolchain install nightly`
+- Install host std: `rustup component add rust-src`
+- Install arm std: `rustup target install armv7a-none-eabi`
+
 # Usage
 ## Booting generic bare-metal payload
 ### Prepare payloads
@@ -14,12 +20,10 @@ cd ../..
 ```
 
 ### With brom patcher
-Triggered automatically when SBC, SLA or DAA is enabled or crash option is enabled.
-
-Pass the `--only-brom` option to force booting payload in the SRAM (L2 cache) instead of the patched preloader.
+Triggered when the crash option is enabled.
 
 ### With preloader patcher
-Preloader is patched automatically when the upload address is not `DA_DRAM_ADDR` or upload binaries is more than 1.
+Preloader is patched automatically when the upload address is not `DA_DRAM_ADDR`, upload binaries is more than 1 or LK image is specified. To forcefully run, pass the `-f` option.
 
 You can also specify more payloads to upload like:
 ```
@@ -27,13 +31,15 @@ You can also specify more payloads to upload like:
 ```
 
 ### Without preloader patcher
-Note that only a single binary can be uploaded, lk images won't work and the payload must have `DA_DRAM_ADDR` base address:
+Note that only a single binary can be uploaded, LK images won't work and the payload must have `DA_DRAM_ADDR` base address:
 ```
-cargo r --release -- -i bin -u 0x81e00000
+cargo r --release -p da-boot -- -i bin -u 0x81e00000
 ```
 
 ### Debugging preloader patcher
-Run `cargo r --release -- dump-preloader` to get preloader.bin file with patches applied
+Run `cargo r --release -p da-boot -- dump-preloader` to get `preloader.bin` file with patches applied.
+
+Alternatively, [run da-patcher](#patching-preloader).
 
 ## LK
 Add `-m lk` to boot payload as LK image
@@ -47,4 +53,4 @@ cargo r --release -p da-parser -- --input /path/to/DA_PL.bin --output da
 Add `--hw-code` parameter to filter the SoC
 
 ## Patching preloader
-Strip 0xb00 bytes (preloader header) and run `cargo r --release -p da-patcher -- -i /path/to/preloader_without_header.bin -o preloader.bin`
+Strip 0xb00 bytes (preloader header) and run `cargo r --release -p da-patcher -- -i /path/to/preloader_without_header.bin -o preloader.bin`.
