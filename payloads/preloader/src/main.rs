@@ -9,9 +9,12 @@ use core::{
     ptr,
 };
 
+use heapless::String;
 use shared::{PRELOADER_BASE, uart_print, uart_println, uart_putc};
+use ufmt::uwrite;
 
 const PRELOADER_END: usize = PRELOADER_BASE + 0x10000;
+const DA_PATHCER_PRELOADER_SIZE: u32 = 10 * 1024;
 
 const DLCOMPORT_PTR: usize = 0x2000828;
 
@@ -20,9 +23,43 @@ const CACHE_LINE: usize = 64;
 
 global_asm!(include_str!("start.S"));
 
-macro_rules! patch {
-    ($addr:expr, $val:expr) => {{
-        ptr::write_volatile($addr as *mut u16, $val);
+macro_rules! status {
+    ($desc:literal, $code:expr) => {{
+        uart_print!($desc);
+        uart_print!(" is ");
+        if let Some(addr) = $code {
+            uart_println!("found");
+            addr
+        } else {
+            uart_println!("NOT found");
+            panic!();
+        }
+    }};
+}
+
+macro_rules! dl_fn {
+    ($name:ident, $ty:ty, $len:expr) => {
+        unsafe fn $name(addr: usize) -> $ty {
+            let mut buf = [0u8; $len];
+            let ptr: UsbRecv = unsafe { transmute(addr | 1) };
+            // ptr, len, timeout (ms)
+            if unsafe { ptr(buf.as_mut_ptr(), $len, 0) } != 0 {
+                uart_println!("usb_recv failed");
+                panic!();
+            }
+            <$ty>::from_be_bytes(buf)
+        }
+    };
+}
+
+dl_fn!(dl8, u8, 1);
+dl_fn!(dl32, u32, 4);
+
+macro_rules! uart_printfln {
+    ($s:expr, $fmt:literal $(, $($arg:tt)+)?) => {{
+        uwrite!($s, $fmt $(, $($arg)+)?).unwrap();
+        uart_println!($s);
+        $s.clear();
     }};
 }
 
@@ -30,17 +67,6 @@ macro_rules! search {
     ($start:expr, $end:expr, $( $pat:expr ),+ $(,)?) => {{
         const PATTERN: &[u16] = &[$($pat),+];
         crate::search_pattern($start, $end, PATTERN)
-    }};
-}
-
-macro_rules! status {
-    ($desc:literal, $code:expr) => {{
-        uart_print!($desc);
-        uart_print!(" is ");
-        if let Err(_) = $code {
-            uart_print!("NOT ");
-        }
-        uart_println!("patched");
     }};
 }
 
@@ -99,102 +125,62 @@ fn panic_handler(_: &PanicInfo) -> ! {
     loop {}
 }
 
-unsafe fn is_movs(addr: usize) -> bool {
-    (unsafe { ptr::read_volatile(addr as *const u16) } & 0xf800) == 0x2000
-}
-
-unsafe fn is_str_sp_rel(addr: usize) -> bool {
-    (unsafe { ptr::read_volatile(addr as *const u16) } & 0xf800) == 0x9000
-}
-
-unsafe fn flip_str_to_ldr(addr: usize) {
-    unsafe {
-        ptr::write_volatile(
-            addr as *mut u16,
-            ptr::read_volatile(addr as *const u16) | (1 << 11),
-        )
-    }
-}
-
-unsafe fn extract_ldr_offset(addr: usize) -> usize {
-    ((unsafe { ptr::read_volatile(addr as *const u16) } & 0xff) * 4) as usize
-}
-
 type UsbdlHandler = unsafe extern "C" fn(u32, u32);
+/// usb_send(u8* buf, u32 size);
+type UsbSend = unsafe extern "C" fn(*const u8, u32);
+/// usb_recv(u8* buf, u32 size, u32 timeout);
+type UsbRecv = unsafe extern "C" fn(*mut u8, u32, u32) -> i32;
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn main() -> ! {
     uart_println!("");
     uart_println!("Hello from Rust :)");
 
-    uart_print!("usbdl_handler is ");
-    let addr = if let Some(addr) = search!(PRELOADER_BASE, PRELOADER_END, 0xe92d, 0x4ef0, 0x460e) {
-        uart_println!("found");
-        addr
-    } else {
-        uart_println!("not found :(");
-        panic!();
-    };
+    let addr = status!("usbdl_handler", { search!(PRELOADER_BASE, PRELOADER_END, 0xe92d, 0x4ef0, 0x460e) });
     let usbdl_handler: UsbdlHandler = unsafe { transmute(addr | 1) };
 
-    status!("send_da", {
-        // mov r3, r0
-        search!(addr, addr + 0x200, 0x4603)
-            .map(|mut addr| unsafe {
-                addr -= 8; // skip 32 bit instructions
-                loop {
-                    addr -= 2;
+    let addr = status!("usb_send", { search!(PRELOADER_BASE, PRELOADER_END, 0xb508, 0x4603, 0x2200, 0x4608, 0x4619) });
+    let usb_send: UsbSend = unsafe { transmute(addr | 1) };
 
-                    if is_str_sp_rel(addr) {
-                        break;
-                    }
-                }
+    let addr = status!("usb_recv", { search!(PRELOADER_BASE, PRELOADER_END, 0xe92d, 0x42f0, 0x4605, 0x2000) });
+    let usb_recv: UsbRecv = unsafe { transmute(addr | 1) };
 
-                flip_str_to_ldr(addr);
-                flush_cache(addr);
-            })
-            .ok_or(())
-    });
+    let mut s = String::<64>::new();
 
-    status!("jump_da", {
-        search!(PRELOADER_BASE, PRELOADER_END, 0x2600, 0x4630)
-            .map(|mut addr| unsafe {
-                addr += 40;
+    uart_println!("Ready for commands...");
+    loop {
+        let command = unsafe { dl8(addr) };
+        unsafe { usb_send([command].as_ptr(), 1) };
+        uart_printfln!(s, "Got 0x{:x}", command);
 
-                // some preloaders may overwrite the DA with boot argument
-                if is_movs(addr + 6) {
-                    for i in 0..13 {
-                        patch!(addr + 2 + (i * 2), 0xbf00); // nop
-                    }
-                } else {
-                    for i in 0..7 {
-                        patch!(addr + 2 + (i * 2), 0xbf00); // nop
-                    }
-                }
-                flush_cache(addr);
+        match command {
+            // patch
+            0x01 => unsafe {
+                let da_addr = dl32(addr);
+                let len = dl32(addr);
 
-                ptr::write_volatile(
-                    (addr + extract_ldr_offset(addr) + 2) as *mut u32,
-                    0x800d0000,
-                );
-            })
-            .ok_or(())
-    });
+                uart_printfln!(s, "Patching 0x{:x}..0x{:x}...", da_addr, da_addr + len);
 
-    status!("sec_region_check", {
-        search!(PRELOADER_BASE, PRELOADER_END, 0xb537, 0x4604, 0x460d)
-            .map(|addr| unsafe {
-                patch!(addr, 0x2000); // movs r0, #0
-                patch!(addr + 2, 0x4770); // bx lr
-                flush_cache(addr);
-            })
-            .ok_or(())
-    });
-
-    uart_println!("Jumping to usbdl_handler...");
-    unsafe {
-        asm!("dsb; isb");
-        usbdl_handler(ptr::read_volatile(DLCOMPORT_PTR as *const u32), 300);
-        unreachable_unchecked();
+                usb_recv(da_addr as *mut u8, len, 0);
+                uart_print!("flush...");
+                flush_cache(da_addr as usize);
+                uart_println!("ok");
+            },
+            // dump preloader
+            0x02 => unsafe {
+                uart_print!("Dumping preloader...");
+                usb_send(DA_PATHCER_PRELOADER_SIZE.to_be_bytes().as_ptr(), 4);
+                usb_send(PRELOADER_BASE as *const u8, DA_PATHCER_PRELOADER_SIZE);
+                uart_println!("ok");
+            },
+            // jump back
+            0x03 => unsafe {
+                uart_println!("Jumping to usbdl_handler...");
+                asm!("dsb; isb");
+                usbdl_handler(ptr::read_volatile(DLCOMPORT_PTR as *const u32), 300);
+                unreachable_unchecked();
+            },
+            _ => uart_println!("Unknown command"),
+        }
     }
 }

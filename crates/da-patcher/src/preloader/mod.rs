@@ -32,6 +32,14 @@ impl<'a> PreloaderPatches<'a> {
         p.patch(bytes)
     }
 
+    fn offset_internal<T: Patch<'a>>(p: &T, bytes: &[u8]) -> Result<usize> {
+        p.offset(bytes)
+    }
+
+    fn replacement_internal<T: Patch<'a>>(p: &T, bytes: &[u8]) -> Result<Vec<u8>> {
+        p.replacement(bytes)
+    }
+
     #[inline]
     fn on_success_internal<T: PatchMessage>(_p: &T) -> &'static str {
         T::on_success()
@@ -50,6 +58,28 @@ impl<'a> PreloaderPatches<'a> {
             Self::JumpDA(p) => Self::patch_internal(p, bytes),
             Self::DABootArgument(p) => Self::patch_internal(p, bytes),
             Self::DAA(p) => Self::patch_internal(p, bytes),
+        }
+    }
+
+    /// Target offset to patch
+    pub fn offset(&self, bytes: &[u8]) -> Result<usize> {
+        match self {
+            Self::SecRegionCheck(p) => Self::offset_internal(p, bytes),
+            Self::SendDA(p) => Self::offset_internal(p, bytes),
+            Self::JumpDA(p) => Self::offset_internal(p, bytes),
+            Self::DABootArgument(p) => Self::offset_internal(p, bytes),
+            Self::DAA(p) => Self::offset_internal(p, bytes),
+        }
+    }
+
+    /// Patch replacement code
+    pub fn replacement(&self, bytes: &[u8]) -> Result<Vec<u8>> {
+        match self {
+            Self::SecRegionCheck(p) => Self::replacement_internal(p, bytes),
+            Self::SendDA(p) => Self::replacement_internal(p, bytes),
+            Self::JumpDA(p) => Self::replacement_internal(p, bytes),
+            Self::DABootArgument(p) => Self::replacement_internal(p, bytes),
+            Self::DAA(p) => Self::replacement_internal(p, bytes),
         }
     }
 
