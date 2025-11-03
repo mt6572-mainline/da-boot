@@ -26,7 +26,4 @@ pub(crate) struct DumpPreloader {
 
 #[derive(Default, Protocol)]
 #[protocol(command = 0x03)]
-pub(crate) struct Return {
-    // FIXME
-    _dummy: usize,
-}
+pub(crate) struct Return;
