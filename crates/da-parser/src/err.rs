@@ -28,6 +28,10 @@ pub enum Error {
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 
+    /// CStr decode error
+    #[error("CStr decode error: {0}")]
+    Cstr(#[from] std::ffi::FromBytesUntilNulError),
+
     /// bincode crate error
     #[error("Bincode decode error: {0}")]
     Bincode(#[from] bincode::error::DecodeError),

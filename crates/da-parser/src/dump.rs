@@ -1,20 +1,30 @@
 use std::{fs, path::PathBuf};
 
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use clap_num::maybe_hex;
-use da_parser::{DA, Result, err::Error, parse};
+use da_parser::{DA, Result, err::Error, parse_da, parse_lk};
+
+#[derive(Subcommand)]
+enum Target {
+    LK,
+    DA {
+        /// Filter SoC by HW code
+        #[arg(long, value_parser=maybe_hex::<u16>)]
+        hw_code: Option<u16>,
+    },
+}
 
 #[derive(Parser)]
 struct Cli {
-    /// DA file
+    /// Input file
     #[arg(short, long)]
     input: PathBuf,
     /// Output directory
     #[arg(short, long)]
     output: PathBuf,
-    /// Filter SoC by HW code
-    #[arg(long, value_parser=maybe_hex::<u16>)]
-    hw_code: Option<u16>,
+
+    #[command(subcommand)]
+    target: Target,
 }
 
 fn save(da: DA, output: &PathBuf) -> Result<()> {
@@ -39,16 +49,26 @@ fn main() -> Result<()> {
         return Err(Error::Custom("Output directory doesn't exist".into()));
     }
 
-    let vec = parse(&data)?;
-    if let Some(hw_code) = cli.hw_code {
-        let da = vec
-            .into_iter()
-            .find(|da| da.hw_code == hw_code)
-            .ok_or(Error::Custom("Given HW code is not found".into()))?;
-        save(da, &cli.output)?;
-    } else {
-        for da in vec {
-            save(da, &cli.output)?;
+    match cli.target {
+        Target::DA { hw_code } => {
+            let vec = parse_da(&data)?;
+            if let Some(hw_code) = hw_code {
+                let da = vec
+                    .into_iter()
+                    .find(|da| da.hw_code == hw_code)
+                    .ok_or(Error::Custom("Given HW code is not found".into()))?;
+                save(da, &cli.output)?;
+            } else {
+                for da in vec {
+                    save(da, &cli.output)?;
+                }
+            }
+        }
+
+        Target::LK => {
+            let lk = parse_lk(&data)?;
+            println!("{}", lk);
+            fs::write(cli.output.join("lk.bin"), lk.code)?;
         }
     }
 

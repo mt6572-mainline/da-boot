@@ -1,3 +1,5 @@
+use std::{borrow::Cow, ffi::CStr};
+
 use bincode::Decode;
 
 use crate::{Result, err::Error};
@@ -16,12 +18,12 @@ pub(crate) struct DAHeader {
     unknown: u32,
     /// 0x55663388 if encrypted
     magic: u32,
-    pub count: u32,
+    count: u32,
 }
 
 impl Verify for DAHeader {
     fn verify(&self) -> Result<()> {
-        if String::from_utf8_lossy(&self.magic_string) != "MTK_DOWNLOAD_AGENT" {
+        if self.magic()? != "MTK_DOWNLOAD_AGENT" {
             return Err(Error::InvalidMagic);
         }
 
@@ -41,17 +43,28 @@ impl Verify for DAHeader {
     }
 }
 
+impl DAHeader {
+    fn magic(&self) -> Result<Cow<'_, str>> {
+        Ok(CStr::from_bytes_until_nul(&self.magic_string)?.to_string_lossy())
+    }
+
+    /// DA images count
+    pub(crate) fn count(&self) -> u32 {
+        self.count
+    }
+}
+
 #[derive(Debug, Decode)]
 #[repr(C)]
 pub(crate) struct DAEntry {
     magic: u16,
-    pub hw_code: u16,
-    pub hw_subcode: u16,
-    pub hw_version: u16,
-    pub sw_version: u16,
+    hw_code: u16,
+    hw_subcode: u16,
+    hw_version: u16,
+    sw_version: u16,
     _unknown: [u16; 3],
     region_index: u16,
-    pub region_count: u16,
+    region_count: u16,
 }
 
 impl Verify for DAEntry {
@@ -65,6 +78,28 @@ impl Verify for DAEntry {
         }
 
         Ok(())
+    }
+}
+
+impl DAEntry {
+    pub(crate) fn hw_code(&self) -> u16 {
+        self.hw_code
+    }
+
+    pub(crate) fn hw_subcode(&self) -> u16 {
+        self.hw_subcode
+    }
+
+    pub(crate) fn hw_version(&self) -> u16 {
+        self.hw_version
+    }
+
+    pub(crate) fn sw_version(&self) -> u16 {
+        self.sw_version
+    }
+
+    pub(crate) fn region_count(&self) -> u16 {
+        self.region_count
     }
 }
 
@@ -93,5 +128,40 @@ impl Verify for DALoadRegion {
         }
 
         Ok(())
+    }
+}
+
+#[derive(Debug, Decode)]
+#[repr(C)]
+pub(crate) struct LKHeader {
+    magic: u32,
+    size: u32,
+    name: [u8; 32],
+    load_address: u32,
+    mode: u32,
+    _unused: [u8; 0x1d0],
+}
+
+impl Verify for LKHeader {
+    fn verify(&self) -> Result<()> {
+        if self.magic != 0x58881688 {
+            return Err(Error::InvalidMagic);
+        }
+
+        if self.mode == 0 {
+            return Err(Error::InvalidHeuristics);
+        }
+
+        Ok(())
+    }
+}
+
+impl LKHeader {
+    pub(crate) fn name(&self) -> Result<Cow<'_, str>> {
+        Ok(CStr::from_bytes_until_nul(&self.name)?.to_string_lossy())
+    }
+
+    pub(crate) fn load_address(&self) -> u32 {
+        self.load_address
     }
 }
