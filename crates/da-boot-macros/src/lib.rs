@@ -6,7 +6,7 @@ use quote::{ToTokens, format_ident, quote};
 use syn::{Data, DeriveInput, Fields, Ident, Type, parse_macro_input};
 
 #[derive(Debug, FromDeriveInput)]
-#[darling(attributes(protocol), supports(struct_named))]
+#[darling(attributes(protocol), supports(struct_named, struct_unit))]
 struct ProtocolArgs {
     command: Option<u8>,
 }
@@ -228,7 +228,8 @@ pub fn da_legacy(input: TokenStream) -> TokenStream {
 
     let fields = match input.data {
         Data::Struct(data) => match data.fields {
-            Fields::Named(data) => data.named,
+            Fields::Named(data) => Some(data.named),
+            Fields::Unit => None,
             _ => {
                 return syn::Error::new_spanned(struct_name, "Only named fields are supported")
                     .to_compile_error()
@@ -242,27 +243,30 @@ pub fn da_legacy(input: TokenStream) -> TokenStream {
         }
     };
 
-    let fields = fields
-        .into_iter()
-        .filter_map(|f| {
-            let attrs = ProtocolField::from_field(&f)
-                .map_err(darling::Error::write_errors)
-                .unwrap();
-            let ident = f.ident.unwrap();
-            let ty = f.ty;
-            let enum_ty = if attrs.tx.is_some() {
-                Some(FieldType::Tx)
-            } else if attrs.rx.is_some() {
-                Some(FieldType::Rx)
-            } else if attrs.echo.is_some() {
-                Some(FieldType::Echo)
-            } else {
-                None
-            }?;
+    let fields = match fields {
+        Some(fields) => fields
+            .into_iter()
+            .filter_map(|f| {
+                let attrs = ProtocolField::from_field(&f)
+                    .map_err(darling::Error::write_errors)
+                    .unwrap();
+                let ident = f.ident.unwrap();
+                let ty = f.ty;
+                let enum_ty = if attrs.tx.is_some() {
+                    Some(FieldType::Tx)
+                } else if attrs.rx.is_some() {
+                    Some(FieldType::Rx)
+                } else if attrs.echo.is_some() {
+                    Some(FieldType::Echo)
+                } else {
+                    None
+                }?;
 
-            Some(Field::new(ident, enum_ty, ty, attrs.status, attrs.size))
-        })
-        .collect::<Vec<_>>();
+                Some(Field::new(ident, enum_ty, ty, attrs.status, attrs.size))
+            })
+            .collect::<Vec<_>>(),
+        None => vec![],
+    };
 
     // For TX and echo fields generate a constructor
     let tx_echo_fields = fields
