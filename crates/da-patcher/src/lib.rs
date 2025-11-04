@@ -8,6 +8,7 @@ use hexpatch_keystone::Keystone;
 
 use crate::err::Error;
 
+pub mod da;
 pub mod err;
 pub mod preloader;
 
