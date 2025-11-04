@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/da-boot", "crates/da-boot-macros", "crates/da-parser", "crates/da-patcher", "payloads/brom", "payloads/preloader", "payloads/shared"]
+members = ["crates/da-boot", "crates/da-boot-macros", "crates/da-parser", "crates/da-patcher", "crates/da-protocol", "payloads/brom", "payloads/preloader", "payloads/shared"]
 
 [workspace.dependencies]
 derive_more = { version = "2.0.1", features = ["is_variant"] }
@@ -9,6 +9,7 @@ thiserror = "2.0.16"
 derive-ctor = "1.0.6"
 clap = { version = "4.5.48", features = ["derive"] }
 clap-num = "1.2.0"
+serialport = "4.7.3"
 
 [profile.release]
 opt-level = 3

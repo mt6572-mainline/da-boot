@@ -17,6 +17,10 @@ pub enum Error {
     #[error("da-patcher error: {0}")]
     DAPatcher(#[from] da_patcher::err::Error),
 
+    /// da-protocol error
+    #[error("Protocol error: {0}")]
+    DAProtocol(#[from] da_protocol::err::Error),
+
     /// I/O error
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),

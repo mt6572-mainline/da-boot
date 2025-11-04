@@ -256,6 +256,7 @@ dependencies = [
  "colored",
  "da-boot-macros",
  "da-patcher",
+ "da-protocol",
  "derive-ctor",
  "derive_more",
  "serialport",
@@ -295,6 +296,14 @@ dependencies = [
  "derive-ctor",
  "hexpatch-keystone",
  "regex",
+ "thiserror",
+]
+
+[[package]]
+name = "da-protocol"
+version = "0.1.0"
+dependencies = [
+ "serialport",
  "thiserror",
 ]
 

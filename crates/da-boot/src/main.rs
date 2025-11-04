@@ -11,9 +11,10 @@ use clap::{Parser, Subcommand, ValueEnum};
 use clap_num::maybe_hex;
 use colored::Colorize;
 use da_patcher::{Assembler, Disassembler, PatchCollection, preloader::Preloader};
+use da_protocol::{Port, SimpleRead, SimpleWrite};
 use derive_ctor::ctor;
 use derive_more::IsVariant;
-use serialport::{SerialPort, SerialPortInfo, SerialPortType, available_ports};
+use serialport::{SerialPortInfo, SerialPortType, available_ports};
 use shared::PRELOADER_BASE;
 
 use crate::{
@@ -30,7 +31,6 @@ mod err;
 mod logging;
 
 type Result<T> = core::result::Result<T, Error>;
-type Port = Box<dyn SerialPort>;
 
 const HANDSHAKE: [u8; 3] = [0x0a, 0x50, 0x05];
 
@@ -237,13 +237,11 @@ fn crash_to_brom(port: &mut Port) -> Result<()> {
 }
 
 fn handshake(port: &mut Port) -> Result<()> {
-    let mut buf = [0; 1];
     loop {
-        port.write(&[0xa0])?;
+        port.write_u8(0xa0)?;
         port.flush()?;
-        port.read_exact(&mut buf)?;
 
-        if buf[0] == 0x5f {
+        if port.read_u8()? == 0x5f {
             break;
         }
     }

@@ -142,7 +142,7 @@ impl Codegen {
     pub fn tx(mut self) -> Self {
         let stream = match self.ty {
             CodegenType::U8 | CodegenType::U16 | CodegenType::U32 => Some(quote! {
-                port.write_all(&tmp.to_be_bytes())?;
+                port.simple_write(tmp)?;
 
             }),
             CodegenType::Vec => Some(quote! {
@@ -162,19 +162,13 @@ impl Codegen {
     pub fn rx(mut self) -> Self {
         let stream = match self.ty {
             CodegenType::U8 => Some(quote! {
-                let mut buf = [0; 1];
-                port.read_exact(&mut buf)?;
-                let tmp = u8::from_be_bytes(buf);
+                let tmp = port.read_u8()?;
             }),
             CodegenType::U16 => Some(quote! {
-                let mut buf = [0; 2];
-                port.read_exact(&mut buf)?;
-                let tmp = u16::from_be_bytes(buf);
+                let tmp = port.read_u16()?;
             }),
             CodegenType::U32 => Some(quote! {
-                let mut buf = [0; 4];
-                port.read_exact(&mut buf)?;
-                let tmp = u32::from_be_bytes(buf);
+                let tmp = port.read_u32()?;
             }),
             _ => None,
         }
@@ -395,6 +389,7 @@ pub fn da_legacy(input: TokenStream) -> TokenStream {
 
             /// Runs the command
             pub fn run(&mut self, port: &mut crate::Port) -> crate::Result<()> {
+                use da_protocol::{SimpleRead, SimpleWrite};
                 #command
                 #(#code;)*
 
