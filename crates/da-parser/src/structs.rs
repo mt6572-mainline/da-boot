@@ -23,7 +23,7 @@ pub(crate) struct DAHeader {
 
 impl Verify for DAHeader {
     fn verify(&self) -> Result<()> {
-        if self.magic()? != "MTK_DOWNLOAD_AGENT" {
+        if self.magic() != "MTK_DOWNLOAD_AGENT" {
             return Err(Error::InvalidMagic);
         }
 
@@ -44,8 +44,8 @@ impl Verify for DAHeader {
 }
 
 impl DAHeader {
-    fn magic(&self) -> Result<Cow<'_, str>> {
-        Ok(CStr::from_bytes_until_nul(&self.magic_string)?.to_string_lossy())
+    fn magic(&self) -> Cow<'_, str> {
+        String::from_utf8_lossy(&self.magic_string)
     }
 
     /// DA images count
