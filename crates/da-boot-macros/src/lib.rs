@@ -1,37 +1,12 @@
 use darling::{FromDeriveInput, FromField};
 use derive_ctor::ctor;
-use derive_more::IsVariant;
 use proc_macro::TokenStream;
 use quote::{ToTokens, format_ident, quote};
 use syn::{Data, DeriveInput, Fields, Ident, Type, parse_macro_input};
 
-#[derive(Debug, FromDeriveInput)]
-#[darling(attributes(protocol), supports(struct_named, struct_unit))]
-struct ProtocolArgs {
-    command: Option<u8>,
-}
+use crate::structs::{DarlingProtocolArgs, DarlingProtocolField, FieldType, ProtocolKind, RxType, TxType};
 
-#[derive(Debug, FromField)]
-#[darling(attributes(protocol))]
-struct ProtocolField {
-    #[darling(default)]
-    tx: Option<()>,
-    #[darling(default)]
-    rx: Option<()>,
-    #[darling(default)]
-    echo: Option<()>,
-    #[darling(default)]
-    status: Option<u16>,
-    #[darling(default)]
-    size: Option<Ident>,
-}
-
-#[derive(IsVariant)]
-enum FieldType {
-    Tx,
-    Rx,
-    Echo,
-}
+mod structs;
 
 #[derive(Clone)]
 enum CodegenType {
@@ -81,8 +56,6 @@ struct Field {
     ident: Ident,
     enum_ty: FieldType,
     ty: Type,
-    status: Option<u16>,
-    vec_recv_size: Option<Ident>,
 }
 
 struct Codegen {
@@ -129,7 +102,7 @@ impl Codegen {
 
     pub fn status(mut self, status: u16) -> Self {
         let stream = quote! {
-            if tmp != #status {
+            if (tmp as u16) != (#status as u16) {
                 return Err(Error::InvalidStatus(#status as u16, tmp as u16));
             }
         };
@@ -215,9 +188,12 @@ pub fn da_legacy(input: TokenStream) -> TokenStream {
     let struct_name = &input.ident;
     let struct_generics = &input.generics;
 
-    let args = match ProtocolArgs::from_derive_input(&input) {
-        Ok(val) => val,
+    let args = match ProtocolKind::try_from(match DarlingProtocolArgs::from_derive_input(&input) {
+        Ok(v) => v,
         Err(e) => return e.write_errors().into(),
+    }) {
+        Ok(v) => v,
+        Err(e) => return e.into_compile_error().into(),
     };
 
     let fields = match input.data {
@@ -225,15 +201,11 @@ pub fn da_legacy(input: TokenStream) -> TokenStream {
             Fields::Named(data) => Some(data.named),
             Fields::Unit => None,
             _ => {
-                return syn::Error::new_spanned(struct_name, "Only named fields are supported")
-                    .to_compile_error()
-                    .into();
+                return syn::Error::new_spanned(struct_name, "Only named fields are supported").to_compile_error().into();
             }
         },
         _ => {
-            return syn::Error::new_spanned(struct_name, "Only structs are supported")
-                .to_compile_error()
-                .into();
+            return syn::Error::new_spanned(struct_name, "Only structs are supported").to_compile_error().into();
         }
     };
 
@@ -241,22 +213,12 @@ pub fn da_legacy(input: TokenStream) -> TokenStream {
         Some(fields) => fields
             .into_iter()
             .filter_map(|f| {
-                let attrs = ProtocolField::from_field(&f)
-                    .map_err(darling::Error::write_errors)
-                    .unwrap();
+                let attrs = DarlingProtocolField::from_field(&f).map_err(darling::Error::write_errors).unwrap();
                 let ident = f.ident.unwrap();
                 let ty = f.ty;
-                let enum_ty = if attrs.tx.is_some() {
-                    Some(FieldType::Tx)
-                } else if attrs.rx.is_some() {
-                    Some(FieldType::Rx)
-                } else if attrs.echo.is_some() {
-                    Some(FieldType::Echo)
-                } else {
-                    None
-                }?;
+                let enum_ty = FieldType::try_from(attrs).unwrap();
 
-                Some(Field::new(ident, enum_ty, ty, attrs.status, attrs.size))
+                Some(Field::new(ident, enum_ty, ty))
             })
             .collect::<Vec<_>>(),
         None => vec![],
@@ -265,7 +227,12 @@ pub fn da_legacy(input: TokenStream) -> TokenStream {
     // For TX and echo fields generate a constructor
     let tx_echo_fields = fields
         .iter()
-        .filter(|f| f.enum_ty.is_tx() || f.enum_ty.is_echo())
+        .filter(|f| match &f.enum_ty {
+            FieldType::Tx(t) if t.is_none() => true,
+            FieldType::Echo => true,
+            FieldType::Ack(_) => true,
+            _ => false,
+        })
         .collect::<Vec<_>>();
     let ctor = if tx_echo_fields.is_empty() {
         quote! {
@@ -303,20 +270,24 @@ pub fn da_legacy(input: TokenStream) -> TokenStream {
             Type::Path(ty) => {
                 let ty = CodegenType::try_from(&ty.path.segments.last().unwrap().ident).unwrap();
                 match f.enum_ty {
-                    FieldType::Tx => Codegen::new(ty, f.ident, true).load().tx().finalize(),
-                    FieldType::Rx => {
+                    FieldType::Tx(tx_ty) => {
+                        let ident = &f.ident;
+                        let default = match tx_ty {
+                            TxType::Always(v) => Some(quote! { self.#ident = #v.try_into().map_err(|e| Error::Custom(format!("Int conversion failed, this shouldn't happen unless the codegen struct is messed up: {e}").into()))?; }),
+                            TxType::None => None,
+                        };
+
+                        let code = Codegen::new(ty, f.ident, true).load().tx().finalize();
+                        quote! {
+                            #default
+                            #code
+                        }
+                    }
+                    FieldType::Rx(rx_ty) => {
                         let ident = f.ident.clone();
                         let code = Codegen::new(ty, f.ident.clone(), true);
-                        let code = if let Some(size) = f.vec_recv_size.clone() {
-                            let inner = CodegenType::try_from(
-                                f.ty.to_token_stream()
-                                    .to_string()
-                                    .replace(' ', "")
-                                    .replace("Vec<", "")
-                                    .replace('>', "")
-                                    .as_str(),
-                            )
-                            .unwrap();
+                        let code = if let RxType::Size(size) = rx_ty.clone() {
+                            let inner = CodegenType::try_from(f.ty.to_token_stream().to_string().replace(' ', "").replace("Vec<", "").replace('>', "").as_str()).unwrap();
                             let inner_code = Codegen::new(inner, f.ident, true).rx().finalize();
                             code.push(quote! {
                                 for i in 0..self.#size {
@@ -327,36 +298,22 @@ pub fn da_legacy(input: TokenStream) -> TokenStream {
                         } else {
                             code.rx()
                         };
-                        let code = if let Some(status) = f.status {
-                            code.status(status)
-                        } else {
-                            code
-                        };
-                        if f.vec_recv_size.is_some() {
-                            code.finalize()
-                        } else {
-                            code.store().finalize()
-                        }
+                        let code = if let RxType::Status(status) = rx_ty { code.status(status) } else { code };
+                        if rx_ty.is_size() { code.finalize() } else { code.store().finalize() }
                     }
-                    FieldType::Echo => Codegen::new(ty, f.ident, true)
-                        .load()
-                        .tx()
-                        .rx()
-                        .echo_status()
-                        .store()
-                        .finalize(),
+                    FieldType::Echo => Codegen::new(ty, f.ident, true).load().tx().rx().echo_status().store().finalize(),
+                    FieldType::Ack(ack_ty) => {
+                        let code = Codegen::new(ty, f.ident.clone(), true);
+                        if ack_ty.is_tx_then_rx() {
+                            code.load().tx().rx().echo_status().store()
+                        } else {
+                            code.rx().store().load().tx()
+                        }.finalize()
+                    }
                 }
             }
             Type::Reference(ty) => Codegen::new(
-                CodegenType::try_from(
-                    ty.elem
-                        .to_token_stream()
-                        .to_string()
-                        .trim()
-                        .replace('&', "")
-                        .as_str(),
-                )
-                .unwrap(),
+                CodegenType::try_from(ty.elem.to_token_stream().to_string().trim().replace('&', "").as_str()).unwrap(),
                 f.ident,
                 true,
             )
@@ -367,14 +324,9 @@ pub fn da_legacy(input: TokenStream) -> TokenStream {
         })
         .collect::<Vec<_>>();
 
-    let command = if let Some(command) = args.command {
+    let command = if let ProtocolKind::Command(command) = args {
         let ident = format_ident!("command");
-        let command_code = Codegen::new(CodegenType::U8, ident.clone(), false)
-            .load()
-            .tx()
-            .rx()
-            .echo_status()
-            .finalize();
+        let command_code = Codegen::new(CodegenType::U8, ident.clone(), false).load().tx().rx().echo_status().finalize();
         quote! {
             let #ident = #command;
             #command_code
