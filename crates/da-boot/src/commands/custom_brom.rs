@@ -3,6 +3,7 @@ use da_boot_macros::Protocol;
 use crate::err::Error;
 
 #[derive(Default, Protocol)]
+#[protocol(naked)]
 pub(crate) struct Sync {
     #[protocol(tx)]
     ack: u32,
@@ -11,6 +12,7 @@ pub(crate) struct Sync {
 }
 
 #[derive(Default, Protocol)]
+#[protocol(naked)]
 pub(crate) struct RunPayload<'a> {
     #[protocol(tx)]
     addr: u32,

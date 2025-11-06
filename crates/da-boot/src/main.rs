@@ -10,17 +10,20 @@ use bincode::Encode;
 use clap::{Parser, Subcommand, ValueEnum};
 use clap_num::maybe_hex;
 use colored::Colorize;
+use da_parser::parse_da;
 use da_patcher::{Assembler, Disassembler, PatchCollection, preloader::Preloader};
 use da_protocol::{Port, SimpleRead, SimpleWrite};
 use derive_ctor::ctor;
 use derive_more::IsVariant;
 use serialport::{SerialPortInfo, SerialPortType, available_ports};
+use sha1::{Digest, Sha1};
 use shared::PRELOADER_BASE;
 
 use crate::{
     commands::{
         custom_brom::{RunPayload, Sync},
         custom_preloader::{DumpPreloader, Patch, Return},
+        da::{DA1Setup, DA2Ack},
         preloader::{GetTargetConfig, JumpDA, Read32, SendDA},
     },
     err::Error,
@@ -74,6 +77,16 @@ enum Command {
         /// LK boot mode
         #[arg(long)]
         lk_mode: Option<LkBootMode>,
+    },
+
+    /// Boot DA
+    BootDA {
+        /// DA file
+        #[arg(short, long)]
+        input: PathBuf,
+        /// Do not patch the DA even if the device is not protected
+        #[arg(long)]
+        quirky_preloader: bool,
     },
 
     /// Boot preloader patcher and dump preloader with changes (debugging)
@@ -400,6 +413,10 @@ fn run_preloader(mut state: State, mut port: Port, device_mode: DeviceMode) -> R
         }
         // For dumping preloader we need read32 patched
         Command::DumpPreloader => (true, fs::read(get_patcher(device_mode))?),
+        Command::BootDA {
+            input,
+            quirky_preloader,
+        } => return run_da(port, input, !quirky_preloader),
     };
 
     // This will run either preloader patcher or actual payload
@@ -524,7 +541,121 @@ fn run_preloader(mut state: State, mut port: Port, device_mode: DeviceMode) -> R
             fs::write("preloader.bin", preloader)?;
             return Ok(());
         }
+        _ => unreachable!(),
     }
+
+    Ok(())
+}
+
+fn run_da(mut port: Port, input: &PathBuf, patch_da: bool) -> Result<()> {
+    let mut da = parse_da(&fs::read(input)?)?
+        .into_iter()
+        .find(|da| da.hw_code == 0x6572)
+        .ok_or(Error::Custom("Invalid DA file".into()))?;
+
+    let (da1, da2) = da.regions.split_at_mut(2);
+
+    println!("\nDA1: {}", da1[1]);
+    println!("\nDA2: {}\n", da2[0]);
+
+    let da1 = &mut da1[1];
+    let da2 = &mut da2[0];
+    let mut da1code = &mut da1.code;
+    let mut da2code = &mut da2.code;
+
+    if patch_da {
+        let asm = Assembler::try_new()?;
+        let disasm = Disassembler::try_new()?;
+        println!("Patching da1...");
+        for i in [
+            // FIXME: add switch to disable hash check or update hash
+            // not sure which one would be better for now
+            //da_patcher::da::DA::security(&asm, &disasm),
+            da_patcher::da::DA::hardcoded(&asm, &disasm),
+        ]
+        .iter()
+        .flatten()
+        {
+            match i.patch(&mut da1code) {
+                Ok(()) => println!("{}", i.on_success().green()),
+                Err(e) => println!("{}: {e}", i.on_failure().red()),
+            }
+        }
+
+        let mut hasher = Sha1::new();
+        hasher.update(&da2code[..da2code.len() - 256]);
+        let hash = hasher.finalize();
+        println!("da2 hash: {hash:#x}");
+
+        let index = (0..da1code.len())
+            .find(|&i| da1code[i..].starts_with(&hash))
+            .ok_or(Error::Custom("da2 hash not found :(".into()))?;
+
+        println!("Patching da2...");
+        for i in [
+            da_patcher::da::DA::security(&asm, &disasm),
+            da_patcher::da::DA::hardcoded(&asm, &disasm),
+        ]
+        .iter()
+        .flatten()
+        {
+            match i.patch(&mut da2code) {
+                Ok(()) => println!("{}", i.on_success().green()),
+                Err(e) => println!("{}: {e}", i.on_failure().red()),
+            }
+        }
+
+        let mut hasher = Sha1::new();
+        hasher.update(&da2code[..da2code.len() - 256]);
+        let replacement = hasher.finalize();
+        println!("patched da2 hash: {replacement:#x}");
+
+        da1code[index..index + 20].clone_from_slice(&replacement);
+    }
+
+    log!("Uploading da1 to {DA_DRAM_ADDR:#x}...");
+    status!(
+        SendDA::new(
+            DA_DRAM_ADDR,
+            da1code.len() as u32,
+            da1.signature_size,
+            &da1code
+        )
+        .run(&mut port)
+    )?;
+    log!("Jumping to {DA_DRAM_ADDR:#x}...");
+    status!(JumpDA::new(DA_DRAM_ADDR).run(&mut port))?;
+
+    log!("Setting up da1...");
+    let mut payload = DA1Setup::new();
+    status!(payload.run(&mut port))?;
+    println!("DA v{}.{}", payload.major(), payload.minor());
+
+    log!("Booting da2...");
+    port.write_u32(da2.base)?;
+    port.write_u32(da2code.len() as u32)?;
+    port.write_u32(0x1000)?;
+    if port.read_u8()? != 0x5a {
+        return Err(Error::Custom("DA2 setup is not accepted".into()));
+    }
+
+    let chunk_size = 0x1000;
+    let chunks = da2code.len() / chunk_size;
+
+    for i in 0..chunks {
+        port.write_all(&da2code[i * chunk_size..(i + 1) * chunk_size])?;
+        if port.read_u8()? != 0x5a {
+            return Err(Error::Custom("DA2 data is not accepted".into()));
+        }
+    }
+
+    if da2code.len() % chunk_size != 0 {
+        port.write_all(&da2code[chunks * chunk_size..])?;
+    }
+
+    status!(DA2Ack::new(0x5a, 0x5a).run(&mut port))?;
+
+    println!("DA2 is up and running");
 
     Ok(())
 }
