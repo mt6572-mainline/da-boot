@@ -1,2 +1,2 @@
 # da-patcher
-Educated preloader patching to disable various security features.
+Preloader and DA patching crate to disable various security features.
