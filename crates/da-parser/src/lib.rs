@@ -49,7 +49,7 @@ impl DA {
 pub struct DARegion {
     pub base: u32,
     pub code: Vec<u8>,
-    pub is_signed: bool,
+    pub signature_size: u32,
 }
 
 impl DARegion {
@@ -57,7 +57,7 @@ impl DARegion {
         Self {
             base: raw.base,
             code: data[raw.start as usize..(raw.start + raw.len) as usize].to_vec(),
-            is_signed: raw.sig_len != 0,
+            signature_size: raw.sig_len,
         }
     }
 }
@@ -66,7 +66,7 @@ impl Display for DARegion {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "Base address: {:#x}", self.base)?;
         writeln!(f, "Code length: {:#x}", self.code.len())?;
-        write!(f, "Signed: {}", if self.is_signed { "yes" } else { "no" })
+        write!(f, "Signature size: {}", self.signature_size)
     }
 }
 
