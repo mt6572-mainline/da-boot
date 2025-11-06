@@ -64,9 +64,9 @@ impl DARegion {
 
 impl Display for DARegion {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Base address: {:#x}\n", self.base)?;
-        write!(f, "Code length: {:#x}\n", self.code.len())?;
-        write!(f, "Signed: {}\n", if self.is_signed { "yes" } else { "no" })
+        writeln!(f, "Base address: {:#x}", self.base)?;
+        writeln!(f, "Code length: {:#x}", self.code.len())?;
+        write!(f, "Signed: {}", if self.is_signed { "yes" } else { "no" })
     }
 }
 
