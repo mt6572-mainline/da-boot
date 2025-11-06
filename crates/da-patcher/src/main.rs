@@ -46,7 +46,10 @@ fn main() -> Result<()> {
             }
         }
         Type::DA => {
-            for i in DA::hardcoded(&asm, &disasm) {
+            for i in [DA::security(&asm, &disasm), DA::hardcoded(&asm, &disasm)]
+                .iter()
+                .flatten()
+            {
                 match i.patch(&mut bytes) {
                     Ok(()) => println!("{}", i.on_success()),
                     Err(e) => println!("{}: {}", i.on_failure(), e),

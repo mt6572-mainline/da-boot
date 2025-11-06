@@ -1,11 +1,17 @@
-use crate::{Patch, PatchCollection, PatchMessage, Result, da::uart_port::UartPort};
+use crate::{
+    Patch, PatchCollection, PatchMessage, Result,
+    da::{hash::Hash, uart_port::UartPort},
+};
 
+pub mod hash;
 pub mod uart_port;
 
 /// DA patches
 pub enum DAPatches<'a> {
     /// Force uart0 for the DA logs
     UartPort(UartPort<'a>),
+    /// Disable hash check in the DA1
+    Hash(Hash<'a>),
 }
 
 impl<'a> DAPatches<'a> {
@@ -23,6 +29,7 @@ impl<'a> DAPatches<'a> {
     pub fn patch(&self, bytes: &mut [u8]) -> Result<()> {
         match self {
             Self::UartPort(p) => p.patch(bytes),
+            Self::Hash(p) => p.patch(bytes),
         }
     }
 
@@ -30,6 +37,7 @@ impl<'a> DAPatches<'a> {
     pub fn offset(&self, bytes: &[u8]) -> Result<usize> {
         match self {
             Self::UartPort(p) => p.offset(bytes),
+            Self::Hash(p) => p.offset(bytes),
         }
     }
 
@@ -37,6 +45,7 @@ impl<'a> DAPatches<'a> {
     pub fn replacement(&self, bytes: &[u8]) -> Result<Vec<u8>> {
         match self {
             Self::UartPort(p) => p.replacement(bytes),
+            Self::Hash(p) => p.replacement(bytes),
         }
     }
 
@@ -45,6 +54,7 @@ impl<'a> DAPatches<'a> {
     pub fn on_success(&self) -> &'static str {
         match self {
             Self::UartPort(p) => Self::on_success_internal(p),
+            Self::Hash(p) => Self::on_success_internal(p),
         }
     }
 
@@ -53,6 +63,7 @@ impl<'a> DAPatches<'a> {
     pub fn on_failure(&self) -> &'static str {
         match self {
             Self::UartPort(p) => Self::on_failure_internal(p),
+            Self::Hash(p) => Self::on_failure_internal(p),
         }
     }
 }
@@ -61,10 +72,10 @@ impl<'a> DAPatches<'a> {
 pub struct DA;
 impl<'a> PatchCollection<'a, DAPatches<'a>> for DA {
     fn security(
-        _assembler: &'a crate::Assembler,
-        _disassembler: &'a crate::Disassembler,
+        assembler: &'a crate::Assembler,
+        disassembler: &'a crate::Disassembler,
     ) -> Vec<DAPatches<'a>> {
-        vec![]
+        vec![DAPatches::Hash(Hash::new(assembler, disassembler))]
     }
 
     fn hardcoded(
