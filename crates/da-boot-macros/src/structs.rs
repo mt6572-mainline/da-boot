@@ -89,6 +89,8 @@ pub(crate) struct DarlingProtocolField {
     ack: Option<AckType>,
     #[darling(default)]
     always: Option<u32>,
+    #[darling(default)]
+    getter: Option<()>,
 }
 
 #[derive(Clone, IsVariant)]
@@ -107,7 +109,7 @@ pub(crate) enum TxType {
 #[derive(IsVariant)]
 pub(crate) enum FieldType {
     Tx(TxType),
-    Rx(RxType),
+    Rx { ty: RxType, getter: bool },
     Echo,
     Ack(AckType),
 }
@@ -128,6 +130,8 @@ impl TryFrom<DarlingProtocolField> for FieldType {
             return err!("tx field cannot be a status");
         } else if all_some!(value.tx, value.size) {
             return err!("only rx field can have size");
+        } else if all_some!(value.tx, value.getter) {
+            return err!("only rx field can have getter");
         } // other sanity checks are todo
 
         if value.tx.is_some() {
@@ -149,7 +153,10 @@ impl TryFrom<DarlingProtocolField> for FieldType {
                 RxType::None
             };
 
-            Ok(Self::Rx(ty))
+            Ok(Self::Rx {
+                ty,
+                getter: value.getter.is_some(),
+            })
         } else if value.echo.is_some() {
             Ok(Self::Echo)
         } else if value.ack.is_some() {

@@ -264,6 +264,40 @@ pub fn da_legacy(input: TokenStream) -> TokenStream {
         }
     };
 
+    let methods = fields
+        .iter()
+        .filter_map(|f| match &f.ty {
+            Type::Path(ty) => match &f.enum_ty {
+                FieldType::Rx { ty: rx_ty, getter } if *getter => {
+                    let ident = &f.ident;
+                    Some(if rx_ty.is_size() {
+                        let as_ident = format_ident!("as_{ident}");
+                        let into_ident = format_ident!("into_{ident}");
+                        quote! {
+                            /// Extract field from the struct
+                            pub fn #into_ident(self) -> #ty {
+                                self.#ident
+                            }
+
+                            /// Get a reference to the field
+                            pub fn #as_ident(&self) -> &#ty {
+                                &self.#ident
+                            }
+                        }
+                    } else {
+                        quote! {
+                            pub fn #ident(&self) -> #ty {
+                                self.#ident
+                            }
+                        }
+                    })
+                }
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
     let code = fields
         .into_iter()
         .map(|f| match &f.ty {
@@ -283,7 +317,7 @@ pub fn da_legacy(input: TokenStream) -> TokenStream {
                             #code
                         }
                     }
-                    FieldType::Rx(rx_ty) => {
+                    FieldType::Rx { ty: rx_ty, .. } => {
                         let ident = f.ident.clone();
                         let code = Codegen::new(ty, f.ident.clone(), true);
                         let code = if let RxType::Size(size) = rx_ty.clone() {
@@ -338,6 +372,7 @@ pub fn da_legacy(input: TokenStream) -> TokenStream {
     let expanded = quote! {
         impl #struct_generics #struct_name #struct_generics {
             #ctor
+            #(#methods)*
 
             /// Runs the command
             pub fn run(&mut self, port: &mut crate::Port) -> crate::Result<()> {
