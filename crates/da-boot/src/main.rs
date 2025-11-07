@@ -438,9 +438,7 @@ fn run_preloader(mut state: State, mut port: Port, device_mode: DeviceMode) -> R
             Some(p) => fs::read(p)?,
             None => {
                 log!("No preloader specified, dumping from RAM...");
-                let mut payload = DumpPreloader::new();
-                status!(payload.run(&mut port))?;
-                payload.into_preloader()
+                status!(DumpPreloader::new().run_preloader(&mut port))?
             }
         };
 
@@ -531,14 +529,13 @@ fn run_preloader(mut state: State, mut port: Port, device_mode: DeviceMode) -> R
 
         Command::DumpPreloader => {
             log!("Dumping preloader from ram...");
-            let mut payload = Read32::new(PRELOADER_BASE as u32, (1 * 1024 * 1024) / 4);
-            status!(payload.run(&mut port))?;
-            let preloader = payload
-                .into_buf()
-                .into_iter()
-                .map(|u32| u32.to_le_bytes())
-                .flatten()
-                .collect::<Vec<_>>();
+            let preloader = status!(
+                Read32::new(PRELOADER_BASE as u32, (1 * 1024 * 1024) / 4).run_buf(&mut port)
+            )?
+            .into_iter()
+            .map(|u32| u32.to_le_bytes())
+            .flatten()
+            .collect::<Vec<_>>();
             fs::write("preloader.bin", preloader)?;
             return Ok(());
         }
