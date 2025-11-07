@@ -24,7 +24,8 @@ use crate::{
         custom_brom::{RunPayload, Sync},
         custom_preloader::{DumpPreloader, Patch, Return},
         da::{DA1Setup, DA2Ack},
-        preloader::{GetTargetConfig, JumpDA, Read32, SendDA},
+        generic::GetTargetConfig,
+        preloader::{JumpDA, Read32, SendDA},
     },
     err::Error,
 };
@@ -66,7 +67,7 @@ enum Command {
         #[arg(short, long, value_delimiter = ' ', num_args = 1.., value_parser=maybe_hex::<u32>)]
         upload_address: Vec<u32>,
 
-        /// Final jump address, jumps to 0x81e00000 if not set
+        /// Final jump address, jumps to DA1 DRAM address if not set
         #[arg(short, long, value_parser=maybe_hex::<u32>)]
         jump_address: Option<u32>,
 
@@ -284,7 +285,7 @@ fn get_da_addr(mode: DeviceMode) -> u32 {
     }
 }
 
-fn print_target_config(port: &mut Port) -> Result<()> {
+fn print_target(port: &mut Port) -> Result<()> {
     let mut payload = GetTargetConfig::new();
     payload.run(port)?;
 
@@ -368,7 +369,7 @@ fn run_preloader(mut state: State, mut port: Port, device_mode: DeviceMode) -> R
     handshake(&mut port)?;
 
     // mt6572 workaround
-    if let Err(_) = print_target_config(&mut port) {
+    if let Err(_) = print_target(&mut port) {
         drop(port);
         return run(state);
     }
@@ -439,7 +440,7 @@ fn run_preloader(mut state: State, mut port: Port, device_mode: DeviceMode) -> R
                 log!("No preloader specified, dumping from RAM...");
                 let mut payload = DumpPreloader::new();
                 status!(payload.run(&mut port))?;
-                payload.preloader
+                payload.into_preloader()
             }
         };
 
@@ -533,7 +534,7 @@ fn run_preloader(mut state: State, mut port: Port, device_mode: DeviceMode) -> R
             let mut payload = Read32::new(PRELOADER_BASE as u32, (1 * 1024 * 1024) / 4);
             status!(payload.run(&mut port))?;
             let preloader = payload
-                .buf
+                .into_buf()
                 .into_iter()
                 .map(|u32| u32.to_le_bytes())
                 .flatten()

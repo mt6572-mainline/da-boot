@@ -20,8 +20,8 @@ pub(crate) struct Patch<'a> {
 pub(crate) struct DumpPreloader {
     #[protocol(rx)]
     size: u32,
-    #[protocol(rx, size = size)]
-    pub preloader: Vec<u8>,
+    #[protocol(rx, getter, size = size)]
+    preloader: Vec<u8>,
 }
 
 #[derive(Default, Protocol)]
