@@ -19,6 +19,12 @@ cd payloads/brom
 cd ../..
 ```
 
+### Without preloader patcher
+Note that only a single binary can be uploaded, LK images won't work and the payload must have `DA_DRAM_ADDR` base address:
+```
+cargo r --release -p da-boot -- -i bin -u 0x81e00000
+```
+
 ### With brom patcher
 Triggered when the crash option is enabled.
 
@@ -30,12 +36,6 @@ You can also specify more payloads to upload like:
 -i bin1 bin2 -u addr1 addr2 -j jumpaddr
 ```
 
-### Without preloader patcher
-Note that only a single binary can be uploaded, LK images won't work and the payload must have `DA_DRAM_ADDR` base address:
-```
-cargo r --release -p da-boot -- -i bin -u 0x81e00000
-```
-
 ### Debugging preloader patcher
 Run `cargo r --release -p da-boot -- dump-preloader` to get `preloader.bin` file with patches applied.
 
@@ -43,6 +43,10 @@ Alternatively, [run da-patcher](#patching-preloader).
 
 ## LK
 Add `-m lk` to boot payload as LK image
+
+## DA
+The DA mode is currently work-in-progress and does nothing besides booting DA2 with an option to patch both DA1 and DA2.
+Run `cargo r --release -p da-boot -- boot-da -i /path/to/DA_PL.bin`. To disable DA patching, pass the `--quirky-preloader` parameter.
 
 ## Parsing DA
 Dump da1 and da2 for all SoCs
@@ -52,5 +56,9 @@ cargo r --release -p da-parser -- --input /path/to/DA_PL.bin --output da
 ```
 Add `--hw-code` parameter to filter the SoC
 
-## Patching preloader
-Strip 0xb00 bytes (preloader header) and run `cargo r --release -p da-patcher -- -i /path/to/preloader_without_header.bin -o preloader.bin`.
+## Patching binaries
+### Preloader
+Strip 0xb00 bytes (preloader header) and run `cargo r --release -p da-patcher -- -i /path/to/preloader_without_header.bin -o preloader.bin --ty preloader`.
+
+### DA
+Run `cargo r --release -p da-patcher -- -i /path/to/da1_or_da2.bin -o da1_or_da2.bin --ty da`.
