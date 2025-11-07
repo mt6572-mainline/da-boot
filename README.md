@@ -46,6 +46,7 @@ Add `-m lk` to boot payload as LK image
 
 ## DA
 The DA mode is currently work-in-progress and does nothing besides booting DA2 with an option to patch both DA1 and DA2.
+
 Run `cargo r --release -p da-boot -- boot-da -i /path/to/DA_PL.bin`. To disable DA patching, pass the `--quirky-preloader` parameter.
 
 ## Parsing DA
