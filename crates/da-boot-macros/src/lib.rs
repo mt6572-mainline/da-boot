@@ -268,29 +268,47 @@ pub fn da_legacy(input: TokenStream) -> TokenStream {
         .iter()
         .filter_map(|f| match &f.ty {
             Type::Path(ty) => match &f.enum_ty {
-                FieldType::Rx { ty: rx_ty, getter } if *getter => {
+                FieldType::Rx { ty: rx_ty, getter } => {
                     let ident = &f.ident;
-                    Some(if rx_ty.is_size() {
-                        let as_ident = format_ident!("as_{ident}");
-                        let into_ident = format_ident!("into_{ident}");
-                        quote! {
-                            /// Extract field from the struct
-                            pub fn #into_ident(self) -> #ty {
-                                self.#ident
-                            }
+                    let code = if *getter {
+                        Some(if rx_ty.is_size() {
+                            let as_ident = format_ident!("as_{ident}");
+                            let into_ident = format_ident!("into_{ident}");
+                            quote! {
+                                /// Extract field from the struct
+                                pub fn #into_ident(self) -> #ty {
+                                    self.#ident
+                                }
 
-                            /// Get a reference to the field
-                            pub fn #as_ident(&self) -> &#ty {
-                                &self.#ident
+                                /// Get a reference to the field
+                                pub fn #as_ident(&self) -> &#ty {
+                                    &self.#ident
+                                }
                             }
-                        }
+                        } else {
+                            quote! {
+                                pub fn #ident(&self) -> #ty {
+                                    self.#ident
+                                }
+                            }
+                        })
                     } else {
-                        quote! {
-                            pub fn #ident(&self) -> #ty {
-                                self.#ident
+                        None
+                    };
+
+                    if !rx_ty.is_status() {
+                        let run_ident = format_ident!("run_{ident}");
+                        Some(quote! {
+                            #code
+                            /// Run command to get the value
+                            pub fn #run_ident(mut self, port: &mut crate::Port) -> crate::Result<#ty> {
+                                self.run(port)?;
+                                Ok(self.#ident)
                             }
-                        }
-                    })
+                        })
+                    } else {
+                        code
+                    }
                 }
                 _ => None,
             },
