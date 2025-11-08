@@ -3,7 +3,7 @@ Boot U-Boot (or any other bare-metal binary) as DA on MediaTek MT6572
 
 # Installation
 - Make sure Rust and C++ compilers, python, cmake, make and `llvm-objcopy` are available on the host
-- Install nightly toolchain: `rustup toolchain install nightly`
+- Install nightly toolchain: `rustup default nightly`
 - Install host std: `rustup component add rust-src`
 - Install arm std: `rustup target install armv7a-none-eabi`
 
