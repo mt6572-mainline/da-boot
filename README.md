@@ -22,7 +22,7 @@ cd ../..
 ### Without preloader patcher
 Note that only a single binary can be uploaded, LK images won't work and the payload must have `DA_DRAM_ADDR` base address:
 ```
-cargo r --release -p da-boot -- -i bin -u 0x81e00000
+cargo r --release -p da-boot -- boot -i bin -u 0x81e00000
 ```
 
 ### With brom patcher
