@@ -6,6 +6,9 @@ pub enum Error {
     #[error("Please disconnect other devices in the preloader mode")]
     MoreThanOneDevice,
 
+    #[error("SoC with {0:#x} hwcode is unsupported")]
+    UnsupportedSoC(u16),
+
     /// The device returned invalid data when echoing bytes back
     #[error("Data doesn't match! Expected {0:#x}, got {1:#x}")]
     InvalidEchoData(u32, u32),

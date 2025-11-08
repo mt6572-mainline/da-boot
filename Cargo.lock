@@ -286,6 +286,7 @@ dependencies = [
  "da-parser",
  "da-patcher",
  "da-protocol",
+ "da-soc",
  "derive-ctor",
  "derive_more",
  "serialport",
@@ -336,6 +337,10 @@ dependencies = [
  "serialport",
  "thiserror",
 ]
+
+[[package]]
+name = "da-soc"
+version = "0.1.0"
 
 [[package]]
 name = "darling"

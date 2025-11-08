@@ -16,5 +16,6 @@ da-boot-macros = { path = "../da-boot-macros" }
 da-parser = { path = "../da-parser" }
 da-patcher = { path = "../da-patcher" }
 da-protocol = { path = "../da-protocol" }
+da-soc = { path = "../da-soc" }
 shared = { path = "../../payloads/shared" }
 sha-1 = "0.10.1"
