@@ -4,13 +4,13 @@ use syn::Ident;
 
 macro_rules! all_none {
     ($($opt:expr),+ $(,)?) => {{
-        $( matches!($opt, None) )&&+
+        $($opt.is_none())&&+
     }};
 }
 
 macro_rules! all_some {
     ($($opt:expr),+ $(,)?) => {{
-        $( matches!($opt, Some(_)) )&&+
+        $($opt.is_some())&&+
     }};
 }
 
@@ -18,7 +18,7 @@ macro_rules! overlap {
     ($($opt:expr),+ $(,)?) => {{
         let mut n = 0;
         $(
-            if matches!($opt, Some(_)) {
+            if $opt.is_some() {
                 n += 1;
             }
         )+
@@ -26,7 +26,7 @@ macro_rules! overlap {
     }};
 }
 
-macro_rules! err {
+macro_rules! dummy_err {
     ($msg:literal) => {{
         let at = proc_macro2::Span::call_site();
         Err(syn::Error::new(at, $msg))
@@ -52,9 +52,9 @@ impl TryFrom<DarlingProtocolArgs> for ProtocolKind {
 
     fn try_from(value: DarlingProtocolArgs) -> Result<Self, Self::Error> {
         if all_some!(value.command, value.naked) {
-            return err!("both command and naked are not supported");
+            return dummy_err!("both command and naked are not supported");
         } else if all_none!(value.command, value.naked) {
-            return err!("struct must be command or naked");
+            return dummy_err!("struct must be command or naked");
         }
 
         Ok(match value.command {
@@ -119,19 +119,19 @@ impl TryFrom<DarlingProtocolField> for FieldType {
 
     fn try_from(value: DarlingProtocolField) -> Result<Self, Self::Error> {
         if all_some!(value.tx, value.rx, value.echo, value.ack) {
-            return err!("specify only tx or rx or echo");
+            return dummy_err!("specify only tx or rx or echo");
         } else if all_none!(value.tx, value.rx, value.echo, value.ack) {
-            return err!("dummy fields are not allowed for the protocol structs");
+            return dummy_err!("dummy fields are not allowed for the protocol structs");
         } else if overlap!(value.tx, value.rx, value.echo, value.ack) {
-            return err!("field must be tx or rx or echo or ack");
+            return dummy_err!("field must be tx or rx or echo or ack");
         }
 
         if all_some!(value.tx, value.status) {
-            return err!("tx field cannot be a status");
+            return dummy_err!("tx field cannot be a status");
         } else if all_some!(value.tx, value.size) {
-            return err!("only rx field can have size");
+            return dummy_err!("only rx field can have size");
         } else if all_some!(value.tx, value.getter) {
-            return err!("only rx field can have getter");
+            return dummy_err!("only rx field can have getter");
         } // other sanity checks are todo
 
         if value.tx.is_some() {
@@ -142,7 +142,7 @@ impl TryFrom<DarlingProtocolField> for FieldType {
             })
         } else if value.rx.is_some() {
             if all_some!(value.status, value.size) {
-                return err!("status and value must not overlap for the rx field");
+                return dummy_err!("status and value must not overlap for the rx field");
             }
 
             let ty = if value.status.is_some() {

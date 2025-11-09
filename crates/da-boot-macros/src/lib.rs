@@ -8,6 +8,12 @@ use crate::structs::{DarlingProtocolArgs, DarlingProtocolField, FieldType, Proto
 
 mod structs;
 
+macro_rules! compile_err {
+    ($at:expr, $err:literal) => {
+        syn::Error::new_spanned($at, $err).into_compile_error().into()
+    };
+}
+
 #[derive(Clone)]
 enum CodegenType {
     U8,
@@ -200,25 +206,23 @@ pub fn da_legacy(input: TokenStream) -> TokenStream {
         Data::Struct(data) => match data.fields {
             Fields::Named(data) => Some(data.named),
             Fields::Unit => None,
-            _ => {
-                return syn::Error::new_spanned(struct_name, "Only named fields are supported").to_compile_error().into();
-            }
+            Fields::Unnamed(_) => return compile_err!(struct_name, "unnamed fields are not supported"),
         },
         _ => {
-            return syn::Error::new_spanned(struct_name, "Only structs are supported").to_compile_error().into();
+            return compile_err!(struct_name, "only structs are supported");
         }
     };
 
     let fields = match fields {
         Some(fields) => fields
             .into_iter()
-            .filter_map(|f| {
+            .map(|f| {
                 let attrs = DarlingProtocolField::from_field(&f).map_err(darling::Error::write_errors).unwrap();
                 let ident = f.ident.unwrap();
                 let ty = f.ty;
                 let enum_ty = FieldType::try_from(attrs).unwrap();
 
-                Some(Field::new(ident, enum_ty, ty))
+                Field::new(ident, enum_ty, ty)
             })
             .collect::<Vec<_>>(),
         None => vec![],
@@ -229,8 +233,7 @@ pub fn da_legacy(input: TokenStream) -> TokenStream {
         .iter()
         .filter(|f| match &f.enum_ty {
             FieldType::Tx(t) if t.is_none() => true,
-            FieldType::Echo => true,
-            FieldType::Ack(_) => true,
+            FieldType::Echo | FieldType::Ack(_) => true,
             _ => false,
         })
         .collect::<Vec<_>>();
@@ -296,7 +299,9 @@ pub fn da_legacy(input: TokenStream) -> TokenStream {
                         None
                     };
 
-                    if !rx_ty.is_status() {
+                    if rx_ty.is_status() {
+                        code
+                    } else {
                         let run_ident = format_ident!("run_{ident}");
                         Some(quote! {
                             #code
@@ -306,8 +311,6 @@ pub fn da_legacy(input: TokenStream) -> TokenStream {
                                 Ok(self.#ident)
                             }
                         })
-                    } else {
-                        code
                     }
                 }
                 _ => None,
