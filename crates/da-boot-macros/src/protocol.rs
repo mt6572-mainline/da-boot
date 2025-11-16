@@ -207,8 +207,8 @@ pub fn da_legacy(input: TokenStream) -> TokenStream {
         }
     };
 
-    let fields = match fields {
-        Some(fields) => fields
+    let fields = fields.map_or_else(Vec::new, |fields| {
+        fields
             .into_iter()
             .map(|f| {
                 let attrs = DarlingProtocolField::from_field(&f).map_err(darling::Error::write_errors).unwrap();
@@ -218,10 +218,8 @@ pub fn da_legacy(input: TokenStream) -> TokenStream {
 
                 Field::new(ident, enum_ty, ty)
             })
-            .collect::<Vec<_>>(),
-        None => vec![],
-    };
-
+            .collect::<Vec<_>>()
+    });
     // For TX and echo fields generate a constructor
     let tx_echo_fields = fields
         .iter()

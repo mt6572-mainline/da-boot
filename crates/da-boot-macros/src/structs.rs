@@ -35,12 +35,12 @@ macro_rules! dummy_err {
 
 #[derive(Debug, FromDeriveInput)]
 #[darling(attributes(protocol), supports(struct_named, struct_unit))]
-pub(crate) struct DarlingProtocolArgs {
+pub struct DarlingProtocolArgs {
     command: Option<u8>,
     naked: Option<()>,
 }
 
-pub(crate) enum ProtocolKind {
+pub enum ProtocolKind {
     /// Preloader or DA command
     Command(u8),
     /// Raw struct
@@ -57,15 +57,12 @@ impl TryFrom<DarlingProtocolArgs> for ProtocolKind {
             return dummy_err!("struct must be command or naked");
         }
 
-        Ok(match value.command {
-            Some(c) => Self::Command(c),
-            None => Self::Naked,
-        })
+        Ok(value.command.map_or(Self::Naked, Self::Command))
     }
 }
 
 #[derive(Debug, FromMeta, IsVariant)]
-pub(crate) enum AckType {
+pub enum AckType {
     /// Wait for ack and echo back
     RxThenTx,
     /// Send ack and wait for echo
@@ -74,7 +71,7 @@ pub(crate) enum AckType {
 
 #[derive(Debug, FromField)]
 #[darling(attributes(protocol))]
-pub(crate) struct DarlingProtocolField {
+pub struct DarlingProtocolField {
     #[darling(default)]
     tx: Option<()>,
     #[darling(default)]
@@ -94,20 +91,20 @@ pub(crate) struct DarlingProtocolField {
 }
 
 #[derive(Clone, IsVariant)]
-pub(crate) enum RxType {
+pub enum RxType {
     Status(u16),
     Size(Ident),
     None,
 }
 
 #[derive(IsVariant)]
-pub(crate) enum TxType {
+pub enum TxType {
     Always(u32),
     None,
 }
 
 #[derive(IsVariant)]
-pub(crate) enum FieldType {
+pub enum FieldType {
     Tx(TxType),
     Rx { ty: RxType, getter: bool },
     Echo,
