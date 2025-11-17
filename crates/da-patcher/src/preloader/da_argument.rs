@@ -20,7 +20,7 @@ impl PatchInformation for DABootArgument<'_> {
     }
 
     fn ty() -> crate::PatchType {
-        crate::PatchType::Instructions
+        crate::PatchType::Fuzzy
     }
 }
 
@@ -36,16 +36,21 @@ impl PatchCode for DABootArgument<'_> {
 
 impl Patch for DABootArgument<'_> {
     fn pattern(&self) -> &'static str {
-        "ite ne; \
-         movne r6, r3; \
-         moveq r6, #0"
+        "add r?, pc;\
+         add r?, pc;\
+         bl #?;\
+         ldr r?, [pc, #?];\
+         ldr r?, [pc, #?];\
+         ? r1, #?;\
+         add r?, pc;\
+         add r?, pc"
     }
 
     fn offset(&self, bytes: &[u8]) -> Result<usize> {
-        let offset = self.search(bytes).map(|o| o.start() + (20 * 2) + 4)?; // bl assert
+        let offset = self.search(bytes).map(|o| o.end() + 4)?; // bl assert
         let disasm = self
             .disassembler
-            .thumb2(&bytes[offset..=offset + (2 * 4)])?;
+            .thumb2(&bytes[offset..=offset + (3 * 4)])?;
         Ok(
             self.data_offset(
                 bytes,
@@ -79,7 +84,7 @@ impl Patch for DABootArgument<'_> {
 impl DABootArgument<'_> {
     /// Parse PC-relative offset to the data
     fn data_offset(&self, bytes: &[u8], offset: usize) -> Result<usize> {
-        let instr = &self.disassembler.thumb2(&bytes[offset..offset + 2])?[0];
+        let instr = &self.disassembler.thumb2(&bytes[offset..offset + 4])?[0];
         let regex = Regex::new("#0x([0-9A-Fa-f]+)")?;
         Ok(usize::from_str_radix(
             regex

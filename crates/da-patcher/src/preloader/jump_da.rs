@@ -36,10 +36,10 @@ impl Patch for JumpDA<'_> {
     fn pattern(&self) -> &'static str {
         "add r?, pc;\
          add r?, pc;\
-         bl r?;\
-         ldr r?, [pc, r?];\
-         ldr r?, [pc, r?];\
-         ? r1, r?;\
+         bl #?;\
+         ldr r?, [pc, #?];\
+         ldr r?, [pc, #?];\
+         ? r1, #?;\
          add r?, pc;\
          add r?, pc"
     }

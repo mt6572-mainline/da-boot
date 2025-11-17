@@ -12,10 +12,15 @@ use crate::{Disassembler, Result, err::Error};
 /// - Fuzzy register as `r?` to match any register or value (supported for both regular form like `r?` and dereference like `[r?]`)
 static FUZZY_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r"(?:\[\s*(?:r(?:1?[0-5]|[0-9]|\?)|sb|sp|lr|pc)\s*\]|(?:r(?:1?[0-5]|[0-9]|\?)|sb|sp|lr|pc)|#(?:0x[0-9a-fA-F]+|\d+))",
+        r"(?:\[\s*(?:r(?:1?[0-5]|[0-9]|\?)|sb|sp|lr|pc)\s*\]|(?:r(?:1?[0-5]|[0-9]|\?)|sb|sp|lr|pc)|#(?:0x[0-9a-fA-F]+|\d+)|#\?|\?)",
     )
     .unwrap()
 });
+
+#[inline]
+fn is_special_reg(reg: &str) -> bool {
+    reg == "sb" || reg == "sp" || reg == "lr" || reg == "pc" || reg == "fp"
+}
 
 pub fn generic_reg_matcher(m: &str, op: &str, want: &str) -> Result<bool> {
     let (want_m, want_op) = want.split_once(' ').ok_or(Error::PatternNotFound)?;
@@ -24,16 +29,21 @@ pub fn generic_reg_matcher(m: &str, op: &str, want: &str) -> Result<bool> {
     // Neither for same operands but any mnemonic
     if (m == want_m && op == want_op) || (m != want_m && op == want_op && want_m == "?") {
         Ok(true)
-    } else if want_op.contains('r') && (want_m == "?" || m == want_m) {
+    } else if want_op.contains('?') && (want_m == "?" || m == want_m) {
         let has_regs = FUZZY_REGEX.find_iter(op).collect::<Vec<_>>();
-        let want_regs = FUZZY_REGEX.find_iter(want).collect::<Vec<_>>();
+        let want_regs = FUZZY_REGEX.find_iter(want_op).collect::<Vec<_>>();
 
         if has_regs.len() == want_regs.len() {
             Ok(has_regs
                 .into_iter()
                 .zip(want_regs)
                 .map(|(hr, wr)| (hr.as_str(), wr.as_str()))
-                .all(|(hr, wr)| wr == "r?" || (wr == hr)))
+                .all(|(hr, wr)| {
+                    wr == "?"
+                        || (wr == hr)
+                        || (wr == "r?" && (hr.starts_with('r') || is_special_reg(hr)))
+                        || (wr == "#?" && hr.starts_with('#'))
+                }))
         } else {
             Ok(false)
         }
