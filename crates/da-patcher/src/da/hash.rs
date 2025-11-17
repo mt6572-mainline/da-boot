@@ -1,41 +1,42 @@
-use crate::{Assembler, Disassembler, Patch, PatchMessage, Result, err::Error, replace, search};
+use crate::{Assembler, Disassembler, Patch, PatchCode, PatchInformation, Result, slice::replace};
+use derive_ctor::ctor;
 
 /// Disable hash check in the DA1
+#[derive(ctor)]
 pub struct Hash<'a> {
     assembler: &'a Assembler,
-    _disassembler: &'a Disassembler<'a>,
+    disassembler: &'a Disassembler<'a>,
 }
 
-impl PatchMessage for Hash<'_> {
-    fn on_success() -> &'static str {
-        "Hash check is patched"
+impl PatchInformation for Hash<'_> {
+    fn mode() -> crate::PatchMode {
+        crate::PatchMode::Thumb2
     }
 
-    fn on_failure() -> &'static str {
-        "Hash check is not patched"
+    fn ty() -> crate::PatchType {
+        crate::PatchType::Instructions
     }
 }
 
-impl<'a> Patch<'a> for Hash<'a> {
-    fn new(assembler: &'a Assembler, _disassembler: &'a Disassembler) -> Self {
-        Self {
-            assembler,
-            _disassembler,
-        }
+impl PatchCode for Hash<'_> {
+    fn assembler(&self) -> &Assembler {
+        self.assembler
     }
 
-    fn pattern(&self) -> Result<Vec<u8>> {
-        self.assembler.thumb2(
-            "mov r2, sp;\
-            sub.w r1, r9, #0x100;\
-            mov r0, r5",
-        )
+    fn disassembler(&self) -> &Disassembler<'_> {
+        self.disassembler
+    }
+}
+
+impl Patch for Hash<'_> {
+    fn pattern(&self) -> &'static str {
+        "mov r2, sp;\
+         sub.w r1, r9, #0x100;\
+         mov r0, r5"
     }
 
     fn offset(&self, bytes: &[u8]) -> Result<usize> {
-        search(bytes, &self.pattern()?)
-            .map(|o| o + (2 * 4) + (7 * 2))
-            .ok_or(Error::PatternNotFound)
+        self.search(bytes).map(|o| o.end() + 4 + (5 * 2))
     }
 
     fn replacement(&self, _bytes: &[u8]) -> Result<Vec<u8>> {
@@ -45,5 +46,13 @@ impl<'a> Patch<'a> for Hash<'a> {
     fn patch(&self, bytes: &mut [u8]) -> Result<()> {
         replace(bytes, self.offset(bytes)?, &self.replacement(bytes)?);
         Ok(())
+    }
+
+    fn on_success(&self) -> &'static str {
+        "DA1 hash check is patched"
+    }
+
+    fn on_failure(&self) -> &'static str {
+        "DA1 hash check is not patched"
     }
 }

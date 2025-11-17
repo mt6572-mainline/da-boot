@@ -1,45 +1,48 @@
 use regex::Regex;
 
-use crate::{Assembler, Disassembler, Patch, PatchMessage, Result, err::Error, replace, search};
+use crate::{
+    Assembler, Disassembler, Patch, PatchCode, PatchInformation, Result, err::Error, slice::replace,
+};
+use derive_ctor::ctor;
 
 /// DA boot argument
 ///
 /// Overwritten with LK boot argument address
+#[derive(ctor)]
 pub struct DABootArgument<'a> {
     assembler: &'a Assembler,
     disassembler: &'a Disassembler<'a>,
 }
 
-impl PatchMessage for DABootArgument<'_> {
-    fn on_success() -> &'static str {
-        "jump_da boot argument hardcoded address is patched"
+impl PatchInformation for DABootArgument<'_> {
+    fn mode() -> crate::PatchMode {
+        crate::PatchMode::Thumb2
     }
 
-    fn on_failure() -> &'static str {
-        "jump_da boot argument address is not patched"
+    fn ty() -> crate::PatchType {
+        crate::PatchType::Instructions
     }
 }
 
-impl<'a> Patch<'a> for DABootArgument<'a> {
-    fn new(assembler: &'a Assembler, disassembler: &'a Disassembler) -> Self {
-        Self {
-            assembler,
-            disassembler,
-        }
+impl PatchCode for DABootArgument<'_> {
+    fn assembler(&self) -> &Assembler {
+        self.assembler
     }
 
-    fn pattern(&self) -> Result<Vec<u8>> {
-        self.assembler.thumb2(
-            "ite ne; \
-            movne r6, r3; \
-            moveq r6, #0",
-        )
+    fn disassembler(&self) -> &Disassembler<'_> {
+        self.disassembler
+    }
+}
+
+impl Patch for DABootArgument<'_> {
+    fn pattern(&self) -> &'static str {
+        "ite ne; \
+         movne r6, r3; \
+         moveq r6, #0"
     }
 
     fn offset(&self, bytes: &[u8]) -> Result<usize> {
-        let offset = search(bytes, &self.pattern()?)
-            .map(|o| o + (20 * 2) + 4) // bl assert
-            .ok_or(Error::PatternNotFound)?;
+        let offset = self.search(bytes).map(|o| o.start() + (20 * 2) + 4)?; // bl assert
         let disasm = self
             .disassembler
             .thumb2(&bytes[offset..=offset + (2 * 4)])?;
@@ -62,6 +65,14 @@ impl<'a> Patch<'a> for DABootArgument<'a> {
     fn patch(&self, bytes: &mut [u8]) -> Result<()> {
         replace(bytes, self.offset(bytes)?, &self.replacement(bytes)?);
         Ok(())
+    }
+
+    fn on_success(&self) -> &'static str {
+        "jump_da boot argument is patched"
+    }
+
+    fn on_failure(&self) -> &'static str {
+        "jump_da boot argument is not patched"
     }
 }
 

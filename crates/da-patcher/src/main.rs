@@ -1,7 +1,9 @@
 use std::{fs, path::PathBuf};
 
 use clap::{Parser, ValueEnum};
-use da_patcher::{Assembler, Disassembler, PatchCollection, Result, da::DA, preloader::Preloader};
+use da_patcher::{
+    Assembler, Disassembler, Patch, PatchCollection, Result, da::DA, preloader::Preloader,
+};
 
 #[derive(Clone, ValueEnum)]
 enum Type {
@@ -32,13 +34,7 @@ fn main() -> Result<()> {
 
     match cli.ty {
         Type::Preloader => {
-            for i in [
-                Preloader::security(&asm, &disasm),
-                Preloader::hardcoded(&asm, &disasm),
-            ]
-            .iter()
-            .flatten()
-            {
+            for i in Preloader::all(&asm, &disasm) {
                 match i.patch(&mut bytes) {
                     Ok(()) => println!("{}", i.on_success()),
                     Err(e) => println!("{}: {}", i.on_failure(), e),
@@ -46,10 +42,7 @@ fn main() -> Result<()> {
             }
         }
         Type::DA => {
-            for i in [DA::security(&asm, &disasm), DA::hardcoded(&asm, &disasm)]
-                .iter()
-                .flatten()
-            {
+            for i in DA::all(&asm, &disasm) {
                 match i.patch(&mut bytes) {
                     Ok(()) => println!("{}", i.on_success()),
                     Err(e) => println!("{}: {}", i.on_failure(), e),

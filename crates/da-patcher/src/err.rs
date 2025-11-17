@@ -15,6 +15,11 @@ pub enum Error {
     /// I/O error
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
+
+    #[cfg(feature = "gui")]
+    /// GUI error
+    #[error("eframe error: {0}")]
+    Eframe(#[from] eframe::Error),
     /// `capstone` crate error
     #[error("Capstone error: {0}")]
     Capstone(#[from] capstone::Error),

@@ -1,40 +1,45 @@
-use crate::{Assembler, Disassembler, Patch, PatchMessage, Result, err::Error, replace, search};
+use crate::{
+    Assembler, Disassembler, Patch, PatchCode, PatchInformation, Result, err::Error, slice::replace,
+};
+use derive_ctor::ctor;
 
 /// Disable hardcoded value in the `send_da` command
+#[derive(ctor)]
 pub struct SendDA<'a> {
     assembler: &'a Assembler,
     disassembler: &'a Disassembler<'a>,
 }
 
-impl PatchMessage for SendDA<'_> {
-    fn on_success() -> &'static str {
-        "send_da hardcoded address is patched"
+impl PatchInformation for SendDA<'_> {
+    fn mode() -> crate::PatchMode {
+        crate::PatchMode::Thumb2
     }
 
-    fn on_failure() -> &'static str {
-        "send_da is not patched"
+    fn ty() -> crate::PatchType {
+        crate::PatchType::Fuzzy
     }
 }
 
-impl<'a> Patch<'a> for SendDA<'a> {
-    fn new(assembler: &'a Assembler, disassembler: &'a Disassembler) -> Self {
-        Self {
-            assembler,
-            disassembler,
-        }
+impl PatchCode for SendDA<'_> {
+    fn assembler(&self) -> &Assembler {
+        self.assembler
     }
 
-    fn pattern(&self) -> Result<Vec<u8>> {
-        self.assembler.thumb2(
-            "and.w r1, r3, #1; \
-            lsrs r6, r3, #1; \
-            mov r3, r0",
-        )
+    fn disassembler(&self) -> &Disassembler<'_> {
+        self.disassembler
+    }
+}
+
+impl Patch for SendDA<'_> {
+    fn pattern(&self) -> &'static str {
+        "and r1, r3, #1;\
+         ? r?, r3, #1;\
+         mov r3, r0"
     }
 
     fn offset(&self, bytes: &[u8]) -> Result<usize> {
-        let o = search(bytes, &self.pattern()?).ok_or(Error::PatternNotFound)?;
-        self.str_offset(bytes, o - (8 * 2))
+        let o = self.search(bytes)?;
+        self.str_offset(bytes, o.start() - (8 * 2))
     }
 
     fn replacement(&self, bytes: &[u8]) -> Result<Vec<u8>> {
@@ -50,6 +55,14 @@ impl<'a> Patch<'a> for SendDA<'a> {
     fn patch(&self, bytes: &mut [u8]) -> Result<()> {
         replace(bytes, self.offset(bytes)?, &self.replacement(bytes)?);
         Ok(())
+    }
+
+    fn on_success(&self) -> &'static str {
+        "send_da is patched"
+    }
+
+    fn on_failure(&self) -> &'static str {
+        "send_da is not patched"
     }
 }
 

@@ -1,40 +1,41 @@
-use crate::{Assembler, Disassembler, Patch, PatchMessage, Result, err::Error, replace, search};
+use crate::{Assembler, Disassembler, Patch, PatchCode, PatchInformation, Result, slice::replace};
+use derive_ctor::ctor;
 
 /// Force uart0 port for DA logs
+#[derive(ctor)]
 pub struct UartPort<'a> {
     assembler: &'a Assembler,
-    _disassembler: &'a Disassembler<'a>,
+    disassembler: &'a Disassembler<'a>,
 }
 
-impl PatchMessage for UartPort<'_> {
-    fn on_success() -> &'static str {
-        "Replaced uart1 with uart0"
+impl PatchInformation for UartPort<'_> {
+    fn mode() -> crate::PatchMode {
+        crate::PatchMode::Thumb2
     }
 
-    fn on_failure() -> &'static str {
-        "Failed to replace uart1"
+    fn ty() -> crate::PatchType {
+        crate::PatchType::Instructions
     }
 }
 
-impl<'a> Patch<'a> for UartPort<'a> {
-    fn new(assembler: &'a Assembler, _disassembler: &'a Disassembler) -> Self {
-        Self {
-            assembler,
-            _disassembler,
-        }
+impl PatchCode for UartPort<'_> {
+    fn assembler(&self) -> &Assembler {
+        self.assembler
     }
 
-    fn pattern(&self) -> Result<Vec<u8>> {
-        self.assembler.thumb2(
-            "mov.w r2, #921600;\
-            mov r1, r4",
-        )
+    fn disassembler(&self) -> &Disassembler<'_> {
+        self.disassembler
+    }
+}
+
+impl Patch for UartPort<'_> {
+    fn pattern(&self) -> &'static str {
+        "mov.w r2, #921600;\
+         mov r1, r4"
     }
 
     fn offset(&self, bytes: &[u8]) -> Result<usize> {
-        search(bytes, &self.pattern()?)
-            .map(|o| o - (2 + 4))
-            .ok_or(Error::PatternNotFound)
+        self.search(bytes).map(|o| o.start() - (2 + 4))
     }
 
     fn replacement(&self, _bytes: &[u8]) -> Result<Vec<u8>> {
@@ -44,5 +45,13 @@ impl<'a> Patch<'a> for UartPort<'a> {
     fn patch(&self, bytes: &mut [u8]) -> Result<()> {
         replace(bytes, self.offset(bytes)?, &self.replacement(bytes)?);
         Ok(())
+    }
+
+    fn on_success(&self) -> &'static str {
+        "DA UART output is replaced"
+    }
+
+    fn on_failure(&self) -> &'static str {
+        "DA UART output is not replaced"
     }
 }

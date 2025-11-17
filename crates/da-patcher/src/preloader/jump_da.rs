@@ -1,43 +1,51 @@
 use capstone::Instructions;
 
-use crate::{Assembler, Disassembler, Patch, PatchMessage, Result, err::Error, replace, search};
+use crate::{
+    Assembler, Disassembler, Patch, PatchCode, PatchInformation, Result, err::Error, slice::replace,
+};
+use derive_ctor::ctor;
 
 /// Disable hardcoded value in the `jump_da` command
+#[derive(ctor)]
 pub struct JumpDA<'a> {
     assembler: &'a Assembler,
     disassembler: &'a Disassembler<'a>,
 }
 
-impl PatchMessage for JumpDA<'_> {
-    fn on_success() -> &'static str {
-        "jump_da hardcoded address is patched"
+impl PatchInformation for JumpDA<'_> {
+    fn mode() -> crate::PatchMode {
+        crate::PatchMode::Thumb2
     }
 
-    fn on_failure() -> &'static str {
-        "jump_da is not patched"
+    fn ty() -> crate::PatchType {
+        crate::PatchType::Fuzzy
     }
 }
 
-impl<'a> Patch<'a> for JumpDA<'a> {
-    fn new(assembler: &'a Assembler, disassembler: &'a Disassembler) -> Self {
-        Self {
-            assembler,
-            disassembler,
-        }
+impl PatchCode for JumpDA<'_> {
+    fn assembler(&self) -> &Assembler {
+        self.assembler
     }
 
-    fn pattern(&self) -> Result<Vec<u8>> {
-        self.assembler.thumb2(
-            "ite ne; \
-            movne r6, r3; \
-            moveq r6, #0",
-        )
+    fn disassembler(&self) -> &Disassembler<'_> {
+        self.disassembler
+    }
+}
+
+impl Patch for JumpDA<'_> {
+    fn pattern(&self) -> &'static str {
+        "add r?, pc;\
+         add r?, pc;\
+         bl r?;\
+         ldr r?, [pc, r?];\
+         ldr r?, [pc, r?];\
+         ? r1, r?;\
+         add r?, pc;\
+         add r?, pc"
     }
 
     fn offset(&self, bytes: &[u8]) -> Result<usize> {
-        search(bytes, &self.pattern()?)
-            .map(|o| o + (20 * 2) + 4) // bl assert
-            .ok_or(Error::PatternNotFound)
+        self.search(bytes).map(|o| o.end() + 4) // bl assert
     }
 
     fn replacement(&self, bytes: &[u8]) -> Result<Vec<u8>> {
@@ -45,7 +53,7 @@ impl<'a> Patch<'a> for JumpDA<'a> {
         let end = offset + 2 + (9 * 2) + (2 * 4); // ldr + 9x 16bit + mov.w + stm.w
         let bytes = &bytes[offset..=end];
         let instr = &self.disassembler.thumb2(bytes)?;
-        let nop_count = self.nop_count(instr)?;
+        let nop_count = Self::nop_count(instr)?;
         let pattern = if instr
             .iter()
             .any(|i| i.mnemonic().is_some_and(|m| m == "mov.w"))
@@ -71,11 +79,19 @@ impl<'a> Patch<'a> for JumpDA<'a> {
         replace(bytes, self.offset(bytes)?, &self.replacement(bytes)?);
         Ok(())
     }
+
+    fn on_success(&self) -> &'static str {
+        "jump_da is patched"
+    }
+
+    fn on_failure(&self) -> &'static str {
+        "jump_da is not patched"
+    }
 }
 
 impl JumpDA<'_> {
     /// Calculate NOP instruction count required for the patch
-    fn nop_count(&self, instr: &Instructions<'_>) -> Result<usize> {
+    fn nop_count(instr: &Instructions<'_>) -> Result<usize> {
         for (n, i) in instr.iter().enumerate() {
             if i.mnemonic().ok_or(Error::MnemonicNotAvailable)? == "stm.w" {
                 return Ok(n

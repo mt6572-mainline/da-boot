@@ -1,41 +1,42 @@
-use crate::{Assembler, Disassembler, Patch, PatchMessage, Result, err::Error, replace, search};
+use crate::{Assembler, Disassembler, Patch, PatchCode, PatchInformation, Result, slice::replace};
+use derive_ctor::ctor;
 
 /// Disable Download Agent Authentication
+#[derive(ctor)]
 pub struct DAA<'a> {
     assembler: &'a Assembler,
-    _disassembler: &'a Disassembler<'a>,
+    disassembler: &'a Disassembler<'a>,
 }
 
-impl PatchMessage for DAA<'_> {
-    fn on_success() -> &'static str {
-        "DAA to be disabled"
+impl PatchInformation for DAA<'_> {
+    fn mode() -> crate::PatchMode {
+        crate::PatchMode::Arm
     }
 
-    fn on_failure() -> &'static str {
-        "Failed to disable DAA"
+    fn ty() -> crate::PatchType {
+        crate::PatchType::Instructions
     }
 }
 
-impl<'a> Patch<'a> for DAA<'a> {
-    fn new(assembler: &'a Assembler, _disassembler: &'a Disassembler) -> Self {
-        Self {
-            assembler,
-            _disassembler,
-        }
+impl PatchCode for DAA<'_> {
+    fn assembler(&self) -> &Assembler {
+        self.assembler
     }
 
-    fn pattern(&self) -> Result<Vec<u8>> {
-        self.assembler.arm(
-            "ldr r3, [r3]; \
-            ldr r2, [r3]; \
-            cmp r2, #0x11",
-        )
+    fn disassembler(&self) -> &Disassembler<'_> {
+        self.disassembler
+    }
+}
+
+impl Patch for DAA<'_> {
+    fn pattern(&self) -> &'static str {
+        "ldr r3, [r3]; \
+         ldr r2, [r3]; \
+         cmp r2, #0x11"
     }
 
     fn offset(&self, bytes: &[u8]) -> Result<usize> {
-        search(bytes, &self.pattern()?)
-            .map(|o| o - (3 * 4))
-            .ok_or(Error::PatternNotFound)
+        self.search(bytes).map(|o| o.start() - (3 * 4))
     }
 
     fn replacement(&self, _bytes: &[u8]) -> Result<Vec<u8>> {
@@ -45,5 +46,13 @@ impl<'a> Patch<'a> for DAA<'a> {
     fn patch(&self, bytes: &mut [u8]) -> Result<()> {
         replace(bytes, self.offset(bytes)?, &self.replacement(bytes)?);
         Ok(())
+    }
+
+    fn on_success(&self) -> &'static str {
+        "DAA to be disabled"
+    }
+
+    fn on_failure(&self) -> &'static str {
+        "DAA is not patched"
     }
 }
