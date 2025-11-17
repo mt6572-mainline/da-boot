@@ -11,7 +11,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use clap_num::maybe_hex;
 use colored::Colorize;
 use da_parser::parse_da;
-use da_patcher::{Assembler, Disassembler, PatchCollection, preloader::Preloader};
+use da_patcher::{Assembler, Disassembler, Patch as _, PatchCollection, preloader::Preloader};
 use da_protocol::{Port, SimpleRead, SimpleWrite};
 use da_soc::SoC;
 use derive_ctor::ctor;
@@ -245,7 +245,7 @@ fn open_port() -> Result<(DeviceMode, Port)> {
 
 fn crash_to_brom(port: &mut Port) -> Result<()> {
     match Read32::new(0x0, 1).run(port) {
-        Err(Error::Io(_)) => Ok(()),
+        Err(Error::DAProtocol(da_protocol::err::Error::Io(_))) => Ok(()),
         _ => Err(Error::Custom("Retry".into())),
     }
 }
@@ -365,8 +365,10 @@ fn run_brom(mut state: State, mut port: Port, device_mode: DeviceMode) -> Result
     return run_preloader(state, port, device_mode);
 }
 
-fn run_preloader(mut state: State, mut port: Port, device_mode: DeviceMode) -> Result<()> {
+fn run_preloader(mut state: State, port: Port, device_mode: DeviceMode) -> Result<()> {
     assert!(device_mode.is_preloader());
+
+    let mut port = mt6572_preloader_workaround(port)?;
 
     if state.cli.crash {
         log!("Crashing to brom mode...");
@@ -663,6 +665,18 @@ fn invalidate_ready(port: &mut Port) -> Result<()> {
     Ok(())
 }
 
+fn mt6572_preloader_workaround(mut port: Port) -> Result<Port> {
+    if let Err(_) = get_hwcode(&mut port) {
+        drop(port);
+        let (_, mut port) = open_port()?;
+        invalidate_ready(&mut port)?;
+        handshake(&mut port)?;
+        Ok(port)
+    } else {
+        Ok(port)
+    }
+}
+
 fn run(cli: Cli) -> Result<()> {
     let (device_mode, mut port) = open_port()?;
 
@@ -672,14 +686,8 @@ fn run(cli: Cli) -> Result<()> {
 
     handshake(&mut port)?;
 
-    // mt6572 workaround
-    let hwcode = match get_hwcode(&mut port) {
-        Ok(hwcode) => hwcode,
-        Err(_) => {
-            drop(port);
-            return run(cli);
-        }
-    };
+    let mut port = mt6572_preloader_workaround(port)?;
+    let hwcode = get_hwcode(&mut port)?;
 
     print_target(&mut port)?;
 
