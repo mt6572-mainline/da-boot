@@ -13,6 +13,5 @@ serialport = "4.7.3"
 
 [profile.release]
 opt-level = 3
-#strip = true
+strip = true
 lto = "thin"
-debug = "full"
