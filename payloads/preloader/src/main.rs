@@ -14,7 +14,7 @@ use shared::{PRELOADER_BASE, uart_print, uart_println, uart_putc};
 use ufmt::uwrite;
 
 const PRELOADER_END: usize = PRELOADER_BASE + 0x10000;
-const DA_PATHCER_PRELOADER_SIZE: u32 = 10 * 1024;
+const DA_PATCHER_PRELOADER_SIZE: u32 = 10 * 1024;
 
 const DLCOMPORT_PTR: usize = 0x2000828;
 
@@ -169,8 +169,8 @@ pub unsafe extern "C" fn main() -> ! {
             // dump preloader
             0x02 => unsafe {
                 uart_print!("Dumping preloader...");
-                usb_send(DA_PATHCER_PRELOADER_SIZE.to_be_bytes().as_ptr(), 4);
-                usb_send(PRELOADER_BASE as *const u8, DA_PATHCER_PRELOADER_SIZE);
+                usb_send(DA_PATCHER_PRELOADER_SIZE.to_be_bytes().as_ptr(), 4);
+                usb_send(PRELOADER_BASE as *const u8, DA_PATCHER_PRELOADER_SIZE);
                 uart_println!("ok");
             },
             // jump back
