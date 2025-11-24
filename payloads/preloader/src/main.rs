@@ -10,16 +10,13 @@ use core::{
 };
 
 use heapless::String;
-use shared::{PRELOADER_BASE, uart_print, uart_println, uart_putc};
+use shared::{PRELOADER_BASE, flush_cache, uart_print, uart_println, uart_putc};
 use ufmt::uwrite;
 
 const PRELOADER_END: usize = PRELOADER_BASE + 0x10000;
 const DA_PATCHER_PRELOADER_SIZE: u32 = 10 * 1024;
 
 const DLCOMPORT_PTR: usize = 0x2000828;
-
-/* Cortex-A7 cache line size */
-const CACHE_LINE: usize = 64;
 
 global_asm!(include_str!("start.S"));
 
@@ -106,17 +103,6 @@ pub fn search_pattern(start: usize, end: usize, code: &[u16]) -> Option<usize> {
     }
 
     None
-}
-
-unsafe fn flush_cache(addr: usize) {
-    let addr = addr & !(CACHE_LINE - 1);
-
-    unsafe {
-        asm!("mcr p15, 0, {addr}, c7, c14, 1", addr = in(reg) addr, options(nostack, nomem));
-        asm!("dsb");
-        asm!("mcr p15, 0, r0, c7, c5, 0", options(nomem, nostack));
-        asm!("isb");
-    }
 }
 
 #[panic_handler]
