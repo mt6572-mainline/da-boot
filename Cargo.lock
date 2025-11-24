@@ -1968,6 +1968,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "interceptor"
+version = "0.1.0"
+dependencies = [
+ "shared",
+]
+
+[[package]]
 name = "io-kit-sys"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2804,6 +2811,7 @@ name = "preloader"
 version = "0.1.0"
 dependencies = [
  "heapless",
+ "interceptor",
  "shared",
  "ufmt",
 ]
