@@ -286,9 +286,7 @@ fn get_da_addr(state: &State, mode: DeviceMode) -> u32 {
 }
 
 fn get_hwcode(port: &mut Port) -> Result<u16> {
-    let hwcode = GetHwCode::new().run_hwcode(port)?;
-    println!("HW code: {hwcode:#x}");
-    Ok(hwcode)
+    GetHwCode::new().run_hwcode(port)
 }
 
 fn print_target(port: &mut Port) -> Result<()> {
@@ -688,6 +686,7 @@ fn run(cli: Cli) -> Result<()> {
 
     let mut port = mt6572_preloader_workaround(port)?;
     let hwcode = get_hwcode(&mut port)?;
+    println!("HW code: {hwcode:#x}");
 
     print_target(&mut port)?;
 
