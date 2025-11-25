@@ -31,7 +31,7 @@ macro_rules! hook {
             }
 
             #[unsafe(no_mangle)]
-            extern "C" fn body() {
+            unsafe extern "C" fn body() {
                 $body
             }
 
