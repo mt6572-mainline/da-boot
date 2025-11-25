@@ -35,8 +35,8 @@ macro_rules! hook {
                 $body
             }
 
-            pub unsafe fn replace(target: *mut u8) -> interceptor::Result<()> {
-                unsafe { Interceptor::replace(target, thunk as *mut u8) }
+            pub unsafe fn replace(target: usize) -> interceptor::Result<()> {
+                unsafe { Interceptor::replace(target, thunk) }
             }
         }
     };
@@ -45,12 +45,12 @@ macro_rules! hook {
 pub struct Interceptor;
 
 impl Interceptor {
-    pub unsafe fn replace(target: *mut u8, replacement: *mut u8) -> Result<()> {
+    pub unsafe fn replace(target: usize, replacement: unsafe extern "C" fn()) -> Result<()> {
         if target as usize & 1 == 0 {
             return Err(Error::UnsupportedMode);
         }
 
-        let target = (target as usize & !1) as *mut u8;
+        let target = (target & !1) as *mut u8;
         unsafe {
             ptr::write_volatile(target as *mut u32, JUMP);
             ptr::write_volatile(target.add(4) as *mut u32, replacement as u32);

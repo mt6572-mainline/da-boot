@@ -2811,7 +2811,6 @@ name = "preloader"
 version = "0.1.0"
 dependencies = [
  "heapless",
- "interceptor",
  "shared",
  "ufmt",
 ]
