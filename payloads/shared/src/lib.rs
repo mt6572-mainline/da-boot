@@ -17,13 +17,27 @@ pub fn uart_putc(c: u8) {
     }
 }
 
-pub unsafe fn flush_cache(addr: usize) {
-    let addr = addr & !(CACHE_LINE - 1);
+pub unsafe fn flush_cache(start_addr: usize, size: usize) {
+    let start_addr = start_addr & !(CACHE_LINE - 1);
+    let end_addr = (start_addr + size + CACHE_LINE - 1) & !(CACHE_LINE - 1);
 
     unsafe {
-        asm!("mcr p15, 0, {addr}, c7, c14, 1", addr = in(reg) addr, options(nostack, nomem));
+        // flush data
+        let mut addr = start_addr;
+        while addr < end_addr {
+            asm!("mcr p15, 0, {addr}, c7, c14, 1", addr = in(reg) addr, options(nostack, nomem));
+            addr += CACHE_LINE;
+        }
+
         asm!("dsb");
+
+        // flush instructions
         asm!("mcr p15, 0, r0, c7, c5, 0", options(nomem, nostack));
+
+        // flush bp
+        asm!("mcr p15, 0, r0, c7, c5, 6", options(nomem, nostack));
+
+        asm!("dsb");
         asm!("isb");
     }
 }
