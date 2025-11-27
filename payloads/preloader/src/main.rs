@@ -149,7 +149,7 @@ pub unsafe extern "C" fn main() -> ! {
 
                 usb_recv(da_addr as *mut u8, len, 0);
                 uart_print!("flush...");
-                flush_cache(da_addr as usize);
+                flush_cache(da_addr as usize, len as usize);
                 uart_println!("ok");
             },
             // dump preloader
