@@ -165,8 +165,7 @@ impl Interceptor {
             }
 
             while (code as u32 + n_code as u32) % 4 != 0 {
-                // Write NOP (0xbf00) to pad alignment
-                ptr::write_volatile(code.add(n_code) as *mut u16, 0xbf00);
+                ptr::write_volatile(code.add(n_code) as *mut u16, NOP);
                 n_code += 2;
             }
 
