@@ -36,27 +36,26 @@ impl<T> Static<T> {
 #[macro_export]
 macro_rules! hook {
     (
-        fn $name:ident() $body:block
+        fn $name:ident($($arg:ident: $argty:ty),*) $body:block
     ) => {
-        mod $name {
+        pub mod $name {
             use super::*;
 
             #[allow(static_mut_refs)]
             static mut ADDR: usize = 0;
 
             #[unsafe(naked)]
-            #[unsafe(no_mangle)]
-            unsafe extern "C" fn thunk() {
+            pub(super) unsafe extern "C" fn thunk() {
                 core::arch::naked_asm!(
                     "push {{r4-r11, lr}}",
-                    "bl body",
+                    "bl {}",
                     "pop {{r4-r11, lr}}",
                     "bx lr",
+                    sym body
                 );
             }
 
-            #[unsafe(no_mangle)]
-            unsafe extern "C" fn body() {
+            pub(super) unsafe extern "C" fn body( $( $arg: $argty ),* ) {
                 $body
             }
 
@@ -147,7 +146,7 @@ impl Interceptor {
                     if is_ldr(v) {
                         let data = extract_ldr(v);
                         let pc_aligned = (target_ptr as u32 + n_target as u32 + 4) & !3;
-                        let literal_address = pc_aligned + data.value;
+                        let literal_address = pc_aligned + data.imm;
                         let value = ptr::read_volatile(literal_address as *const u32);
                         let (movw, movt) = pack_mov_pair(data.r, value);
                         write_thumb2_instr(code.add(n_code), movw);

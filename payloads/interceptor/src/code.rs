@@ -6,7 +6,7 @@ pub const NOP: u16 = 0xbf00;
 #[derive(ctor)]
 pub struct RegAndValue {
     pub r: u8,
-    pub value: u32,
+    pub imm: u32,
 }
 
 #[derive(ctor)]
