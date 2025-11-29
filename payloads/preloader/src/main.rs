@@ -19,6 +19,9 @@ const PRELOADER_END: usize = PRELOADER_BASE + 0x10000;
 const DA_PATCHER_PRELOADER_SIZE: u32 = 10 * 1024;
 
 const LK_END: usize = LK_BASE + 0x100000;
+const LK_KERNEL_ADDR: usize = 0x80108000;
+
+const MAGIC: u32 = 0xDEADC0DE;
 
 const DLCOMPORT_PTR: usize = 0x2000828;
 
@@ -127,7 +130,7 @@ mod hooks {
             let addr = status!("boot_linux", { search!(LK_BASE, LK_END, 0xe92d, 0x4ff0, 0x2401, 0x460e, 0xf2c5) });
             let cmdline = status!("cmdline", { search!(LK_BASE, LK_END, 0x6f63, 0x736e, 0x6c6f, 0x3d65, 0x7474) }); // oc, sn, lo, =e, tt
             unsafe {
-                c_function!(fn (usize, usize, usize, i32, usize, i32) -> !, addr | 1)(0x80108000, 0x80100100, cmdline, 6572, 0x84100000, 0);
+                c_function!(fn (usize, usize, usize, i32, usize, i32) -> !, addr | 1)(LK_KERNEL_ADDR, 0x80100100, cmdline, 6572, 0x84100000, 0);
             }
         }
     }
@@ -135,7 +138,7 @@ mod hooks {
     hook! {
         fn bldr_jump(addr: u32, arg1: u32, arg2: u32) {
             uart_println!("bldr_jump");
-            if addr == LK_BASE as u32 {
+            if addr == LK_BASE as u32 && unsafe { (LK_KERNEL_ADDR as *mut u32).read() } != MAGIC {
                 let addr = status!("boot_linux_from_storage", { search!(LK_BASE, LK_END, 0xe92d, 0x41f0, 0x2000, 0xB082) });
                 unsafe { boot_linux_from_storage::replace(addr | 1) };
             }
@@ -171,6 +174,7 @@ pub unsafe extern "C" fn main() -> ! {
     unsafe {
         Interceptor::init();
         hooks::bldr_jump::replace(bldr_jump | 1);
+        (LK_KERNEL_ADDR as *mut u32).write(MAGIC);
     }
 
     let mut s = String::<64>::new();
