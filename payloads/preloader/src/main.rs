@@ -9,16 +9,23 @@ use core::{
     ptr,
 };
 
+use bump::BumpAllocator;
 use heapless::String;
-use shared::{PRELOADER_BASE, flush_cache, uart_print, uart_println, uart_putc};
+use interceptor::{Interceptor, c_function, hook};
+use shared::{LK_BASE, PRELOADER_BASE, flush_cache, uart_print, uart_println, uart_putc};
 use ufmt::uwrite;
 
 const PRELOADER_END: usize = PRELOADER_BASE + 0x10000;
 const DA_PATCHER_PRELOADER_SIZE: u32 = 10 * 1024;
 
+const LK_END: usize = LK_BASE + 0x100000;
+
 const DLCOMPORT_PTR: usize = 0x2000828;
 
 global_asm!(include_str!("start.S"));
+
+#[global_allocator]
+static ALLOCATOR: BumpAllocator = BumpAllocator::new(0xa0000000);
 
 macro_rules! status {
     ($desc:literal, $code:expr) => {{
@@ -111,6 +118,35 @@ fn panic_handler(_: &PanicInfo) -> ! {
     loop {}
 }
 
+mod hooks {
+    use super::*;
+
+    hook! {
+        fn boot_linux_from_storage() {
+            uart_println!("Booting linux");
+            let addr = status!("boot_linux", { search!(LK_BASE, LK_END, 0xe92d, 0x4ff0, 0x2401, 0x460e, 0xf2c5) });
+            let cmdline = status!("cmdline", { search!(LK_BASE, LK_END, 0x6f63, 0x736e, 0x6c6f, 0x3d65, 0x7474) }); // oc, sn, lo, =e, tt
+            unsafe {
+                c_function!(fn (usize, usize, usize, i32, usize, i32) -> !, addr | 1)(0x80108000, 0x80100100, cmdline, 6572, 0x84100000, 0);
+            }
+        }
+    }
+
+    hook! {
+        fn bldr_jump(addr: u32, arg1: u32, arg2: u32) {
+            uart_println!("bldr_jump");
+            if addr == LK_BASE as u32 {
+                let addr = status!("boot_linux_from_storage", { search!(LK_BASE, LK_END, 0xe92d, 0x41f0, 0x2000, 0xB082) });
+                unsafe { boot_linux_from_storage::replace(addr | 1) };
+            }
+
+            unsafe {
+                c_function!(fn(u32, u32, u32) -> !, bldr_jump::original() as usize | 1)(addr, arg1, arg2);
+            }
+        }
+    }
+}
+
 type UsbdlHandler = unsafe extern "C" fn(u32, u32);
 /// usb_send(u8* buf, u32 size);
 type UsbSend = unsafe extern "C" fn(*const u8, u32);
@@ -130,6 +166,12 @@ pub unsafe extern "C" fn main() -> ! {
 
     let addr = status!("usb_recv", { search!(PRELOADER_BASE, PRELOADER_END, 0xe92d, 0x42f0, 0x4605, 0x2000) });
     let usb_recv: UsbRecv = unsafe { transmute(addr | 1) };
+
+    let bldr_jump = status!("bldr_jump", { search!(PRELOADER_BASE, PRELOADER_END, 0xe92d, 0x46f8, 0x4691, 0x4604) });
+    unsafe {
+        Interceptor::init();
+        hooks::bldr_jump::replace(bldr_jump | 1);
+    }
 
     let mut s = String::<64>::new();
 

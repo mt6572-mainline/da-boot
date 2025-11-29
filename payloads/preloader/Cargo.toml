@@ -6,4 +6,6 @@ edition = "2024"
 [dependencies]
 heapless = { version = "0.9.1", features = ["ufmt"] }
 shared = { path = "../shared" }
+interceptor = { path = "../interceptor" }
+bump = { path = "../bump" }
 ufmt = "0.2.0"
