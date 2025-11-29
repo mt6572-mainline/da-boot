@@ -3,6 +3,7 @@
 use core::{arch::asm, ptr};
 
 pub const PRELOADER_BASE: usize = 0x2007500;
+pub const LK_BASE: usize = 0x80020000;
 
 const UART0_LSR: usize = 0x11005000 + 0x14;
 const UART0_THR: usize = 0x11005000;
