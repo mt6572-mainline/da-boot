@@ -496,9 +496,9 @@ fn run_preloader(mut state: State, port: Port, device_mode: DeviceMode) -> Resul
         } => {
             let mode = mode.unwrap_or_default();
 
-            for (i, a) in input.into_iter().zip(upload_address) {
+            for (idx, (i, a)) in input.into_iter().zip(upload_address).enumerate() {
                 let mut payload = fs::read(i)?;
-                if mode.is_lk() {
+                if mode.is_lk() && idx == 0 {
                     payload.drain(0..0x200);
                 }
                 log!("Uploading payload to {a:#x}...");
