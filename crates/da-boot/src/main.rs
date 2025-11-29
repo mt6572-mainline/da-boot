@@ -426,7 +426,9 @@ fn run_preloader(mut state: State, port: Port, device_mode: DeviceMode) -> Resul
     }
 
     match &state.cli.command {
-        Command::Boot { mode, input, .. } if input.len() > 1 => {
+        Command::Boot { mode, input, .. }
+            if input.len() > 1 && state.is_preloader_patched == true =>
+        {
             println!("We still need preloader patcher to boot hook LK");
             state.is_preloader_patched = false;
         }
