@@ -36,7 +36,7 @@ impl<T> Static<T> {
 #[macro_export]
 macro_rules! hook {
     (
-        fn $name:ident($($arg:ident: $argty:ty),*) $body:block
+        fn $name:ident($($arg:ident: $argty:ty),*) $(-> $ret:ty)? $body:block
     ) => {
         pub mod $name {
             use super::*;
@@ -55,7 +55,7 @@ macro_rules! hook {
                 );
             }
 
-            pub(super) unsafe extern "C" fn body( $( $arg: $argty ),* ) {
+            pub(super) unsafe extern "C" fn body( $( $arg: $argty ),* ) $(-> $ret)? {
                 $body
             }
 
