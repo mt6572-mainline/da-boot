@@ -44,6 +44,9 @@ Alternatively, [run da-patcher](#patching-preloader).
 ## LK
 Add `-m lk` to boot payload as LK image
 
+### LK payload
+LK can boot bare-metal payloads (including U-Boot) via `boot_linux` function. The preloader patcher will hook it when more than one binary is uploaded in the LK mode (address must match LK kernel address, `0x80108000` for MT6572).
+
 ## DA
 The DA mode is currently work-in-progress and does nothing besides booting DA2 with an option to patch both DA1 and DA2.
 
