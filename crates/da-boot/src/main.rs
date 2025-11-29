@@ -417,16 +417,24 @@ fn run_preloader(mut state: State, port: Port, device_mode: DeviceMode) -> Resul
     };
 
     // This will run either preloader patcher or actual payload
-    if !state.is_preloader_patched {
-        run_payload(da_addr, &payload, &mut port)?;
-    }
-
     if !run_patcher && !state.is_preloader_patched {
         return Ok(());
     }
 
     if state.is_preloader_patched {
         println!("Successfully booted patched preloader through BROM mode");
+    }
+
+    match &state.cli.command {
+        Command::Boot { mode, input, .. } if input.len() > 1 => {
+            println!("We still need preloader patcher to boot hook LK");
+            state.is_preloader_patched = false;
+        }
+        _ => (),
+    }
+
+    if !state.is_preloader_patched {
+        run_payload(da_addr, &payload, &mut port)?;
     }
 
     if !state.is_preloader_patched {
