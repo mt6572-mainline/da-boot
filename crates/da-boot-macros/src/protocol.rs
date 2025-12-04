@@ -116,7 +116,7 @@ impl Codegen {
     pub fn tx(mut self) -> Self {
         let stream = match self.ty {
             CodegenType::U8 | CodegenType::U16 | CodegenType::U32 => Some(quote! {
-                port.simple_write(tmp)?;
+                port.simple_write_be(tmp)?;
 
             }),
             CodegenType::Vec => Some(quote! {
@@ -139,10 +139,10 @@ impl Codegen {
                 let tmp = port.read_u8()?;
             }),
             CodegenType::U16 => Some(quote! {
-                let tmp = port.read_u16()?;
+                let tmp = port.read_u16_be()?;
             }),
             CodegenType::U32 => Some(quote! {
-                let tmp = port.read_u32()?;
+                let tmp = port.read_u32_be()?;
             }),
             _ => None,
         }

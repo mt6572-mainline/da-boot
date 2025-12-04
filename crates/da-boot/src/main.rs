@@ -696,9 +696,9 @@ fn run_da(
     }
 
     log!("Booting da2...");
-    port.write_u32(da2.base)?;
-    port.write_u32(da2code.len() as u32)?;
-    port.write_u32(0x1000)?;
+    port.write_u32_be(da2.base)?;
+    port.write_u32_be(da2code.len() as u32)?;
+    port.write_u32_be(0x1000)?;
     if port.read_u8()? != 0x5a {
         return Err(Error::Custom("DA2 setup is not accepted".into()));
     }
