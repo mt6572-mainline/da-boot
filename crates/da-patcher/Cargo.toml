@@ -26,5 +26,5 @@ capstone = "0.13.0"
 regex = "1.12.2"
 eframe = { version = "0.33.0", optional = true}
 egui_file = { version = "0.24.0", optional = true }
-enum_dispatch = "0.3.13"
+enum_dispatch = { workspace = true }
 da-boot-macros = { path = "../da-boot-macros" }

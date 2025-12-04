@@ -5,6 +5,7 @@ use derive_ctor::ctor;
 use derive_more::IsVariant;
 use enum_dispatch::enum_dispatch;
 use hexpatch_keystone::Keystone;
+use regex::Regex;
 
 use crate::{
     da::{DAPatches, hash::Hash, uart_port::UartPort},
@@ -177,4 +178,17 @@ pub trait PatchCollection<'a, T: Sized> {
         .flatten()
         .collect()
     }
+}
+
+pub fn extract_imm(s: &str) -> Result<usize> {
+    let regex = Regex::new("#(0x)?([0-9A-Fa-f]+)")?;
+    Ok(usize::from_str_radix(
+        regex
+            .find(s)
+            .ok_or(Error::PatternNotFound)?
+            .as_str()
+            .trim_start_matches("#")
+            .trim_start_matches("0x"),
+        16,
+    )?)
 }

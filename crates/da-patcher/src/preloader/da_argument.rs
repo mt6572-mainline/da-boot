@@ -1,7 +1,6 @@
-use regex::Regex;
-
 use crate::{
-    Assembler, Disassembler, Patch, PatchCode, PatchInformation, Result, err::Error, slice::replace,
+    Assembler, Disassembler, Patch, PatchCode, PatchInformation, Result, err::Error, extract_imm,
+    slice::replace,
 };
 use derive_ctor::ctor;
 
@@ -85,14 +84,6 @@ impl DABootArgument<'_> {
     /// Parse PC-relative offset to the data
     fn data_offset(&self, bytes: &[u8], offset: usize) -> Result<usize> {
         let instr = &self.disassembler.thumb2(&bytes[offset..offset + 4])?[0];
-        let regex = Regex::new("#0x([0-9A-Fa-f]+)")?;
-        Ok(usize::from_str_radix(
-            regex
-                .find(instr.op_str().ok_or(Error::InstrOpNotAvailable)?)
-                .ok_or(Error::PatternNotFound)?
-                .as_str()
-                .trim_start_matches("#0x"),
-            16,
-        )? + offset)
+        extract_imm(instr.op_str().ok_or(Error::InstrOpNotAvailable)?).map(|o| o + offset)
     }
 }
