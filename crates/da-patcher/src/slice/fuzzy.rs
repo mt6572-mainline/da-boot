@@ -23,11 +23,19 @@ fn is_special_reg(reg: &str) -> bool {
 }
 
 pub fn generic_reg_matcher(m: &str, op: &str, want: &str) -> Result<bool> {
+    if want == "??" {
+        return Ok(true);
+    }
+
     let (want_m, want_op) = want.split_once(' ').ok_or(Error::PatternNotFound)?;
 
-    // No need to use regex for equal instructions
+    // `??` for entire match or for operand means anything,
+    // No need to use regex for equal instructions,
     // Neither for same operands but any mnemonic
-    if (m == want_m && op == want_op) || (m != want_m && op == want_op && want_m == "?") {
+    if (m == want_m && op == want_op)
+        || (m != want_m && op == want_op && want_m == "?")
+        || (m == want_m && want_op == "??")
+    {
         Ok(true)
     } else if want_op.contains('?') && (want_m == "?" || m == want_m) {
         let has_regs = FUZZY_REGEX.find_iter(op).collect::<Vec<_>>();
@@ -62,7 +70,11 @@ pub fn fuzzy_search_thumb2<T: Fn(&str, &str, &str) -> Result<bool>>(
 
     let mut n = 0;
     let mut start = None;
-    let split_instr = pattern.split(';').map(str::trim).collect::<Vec<_>>();
+    let split_instr = pattern
+        .split(';')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>();
 
     while offset < slice.len() {
         let insns = disasm.thumb2_disasm_count(&slice[offset..], 1)?;
@@ -72,7 +84,9 @@ pub fn fuzzy_search_thumb2<T: Fn(&str, &str, &str) -> Result<bool>>(
 
             let m = insn.mnemonic().ok_or(Error::MnemonicNotAvailable)?;
             let op = insn.op_str().ok_or(Error::InstrOpNotAvailable)?;
-            if matcher(m, op, split_instr.get(n).ok_or(Error::PatternNotFound)?)? {
+            let want = split_instr.get(n).ok_or(Error::PatternNotFound)?;
+
+            if matcher(m, op, want)? {
                 if n == 0 {
                     start = Some(offset);
                 }
