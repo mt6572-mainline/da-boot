@@ -12,7 +12,7 @@ use core::{
 use bump::BumpAllocator;
 use heapless::String;
 use interceptor::{Interceptor, c_function, hook};
-use shared::{LK_BASE, PRELOADER_BASE, flush_cache, uart_print, uart_println, uart_putc};
+use shared::{LK_BASE, PRELOADER_BASE, flush_cache, search, search_pattern, uart_print, uart_println, uart_putc};
 use ufmt::uwrite;
 
 const PRELOADER_END: usize = PRELOADER_BASE + 0x10000;
@@ -68,51 +68,6 @@ macro_rules! uart_printfln {
         uart_println!($s);
         $s.clear();
     }};
-}
-
-macro_rules! search {
-    ($start:expr, $end:expr, $( $pat:expr ),+ $(,)?) => {{
-        const PATTERN: &[u16] = &[$($pat),+];
-        crate::search_pattern($start, $end, PATTERN)
-    }};
-}
-
-pub fn search_pattern(start: usize, end: usize, code: &[u16]) -> Option<usize> {
-    let n = code.len();
-    if n == 0 || end <= start {
-        return None;
-    }
-
-    let end = end.saturating_sub(n * 2);
-
-    let mut offset = start;
-    while offset < end {
-        // SAFETY: Thumb2 instructions are always readable as u16,
-        // even if they're actually 32-bit wide
-        let first = unsafe { *(offset as *const u16) };
-        if first != code[0] {
-            offset += 2;
-            continue;
-        }
-
-        let mut matched = true;
-        for i in 1..n {
-            let check_addr = offset + (i * 2);
-            let value = unsafe { *(check_addr as *const u16) };
-            if value != code[i] {
-                matched = false;
-                break;
-            }
-        }
-
-        if matched {
-            return Some(offset);
-        }
-
-        offset += 2;
-    }
-
-    None
 }
 
 #[panic_handler]
