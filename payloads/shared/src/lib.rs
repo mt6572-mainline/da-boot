@@ -1,16 +1,20 @@
 #![no_std]
-
+#[cfg(target_arch = "arm")]
 use core::{arch::asm, ptr};
 
 pub const PRELOADER_BASE: usize = 0x2007500;
 pub const LK_BASE: usize = 0x80020000;
 
+#[cfg(target_arch = "arm")]
 const UART0_LSR: usize = 0x11005000 + 0x14;
+#[cfg(target_arch = "arm")]
 const UART0_THR: usize = 0x11005000;
 
+#[cfg(target_arch = "arm")]
 /* Cortex-A7 cache line size */
 const CACHE_LINE: usize = 64;
 
+#[cfg(target_arch = "arm")]
 pub fn uart_putc(c: u8) {
     unsafe {
         while (ptr::read_volatile(UART0_LSR as *const u32) & 0x20) == 0 {}
@@ -18,6 +22,7 @@ pub fn uart_putc(c: u8) {
     }
 }
 
+#[cfg(target_arch = "arm")]
 pub unsafe fn flush_cache(start_addr: usize, size: usize) {
     let start_addr = start_addr & !(CACHE_LINE - 1);
     let end_addr = (start_addr + size + CACHE_LINE - 1) & !(CACHE_LINE - 1);
@@ -43,6 +48,55 @@ pub unsafe fn flush_cache(start_addr: usize, size: usize) {
     }
 }
 
+#[cfg(target_arch = "arm")]
+pub fn search_pattern(start: usize, end: usize, code: &[u16]) -> Option<usize> {
+    let n = code.len();
+    if n == 0 || end <= start {
+        return None;
+    }
+
+    let end = end.saturating_sub(n * 2);
+
+    let mut offset = start;
+    while offset < end {
+        // SAFETY: Thumb2 instructions are always readable as u16,
+        // even if they're actually 32-bit wide
+        let first = unsafe { *(offset as *const u16) };
+        if first != code[0] {
+            offset += 2;
+            continue;
+        }
+
+        let mut matched = true;
+        for i in 1..n {
+            let check_addr = offset + (i * 2);
+            let value = unsafe { *(check_addr as *const u16) };
+            if value != code[i] {
+                matched = false;
+                break;
+            }
+        }
+
+        if matched {
+            return Some(offset);
+        }
+
+        offset += 2;
+    }
+
+    None
+}
+
+#[cfg(target_arch = "arm")]
+#[macro_export]
+macro_rules! search {
+    ($start:expr, $end:expr, $( $pat:expr ),+ $(,)?) => {{
+        const PATTERN: &[u16] = &[$($pat),+];
+        crate::search_pattern($start, $end, PATTERN)
+    }};
+}
+
+#[cfg(target_arch = "arm")]
 #[macro_export]
 macro_rules! uart_print {
     ($s:expr) => {{
@@ -52,6 +106,7 @@ macro_rules! uart_print {
     }};
 }
 
+#[cfg(target_arch = "arm")]
 #[macro_export]
 macro_rules! uart_println {
     ($s:expr) => {{
