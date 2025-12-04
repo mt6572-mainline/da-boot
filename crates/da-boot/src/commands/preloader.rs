@@ -6,7 +6,7 @@ use crate::err::Error;
 ///
 /// Once the preloader patcher was ran, the `addr` field is handled properly, otherwise preloader overwrites it with the `DA_ADDR` constant
 #[derive(Default, Protocol)]
-#[protocol(command = 0xd7)]
+#[protocol(command = 0xd7, echo)]
 pub(crate) struct SendDA<'a> {
     /// DA address
     #[protocol(echo)]
@@ -33,7 +33,7 @@ pub(crate) struct SendDA<'a> {
 
 /// A command to jump to previously uploaded Download Agent
 #[derive(Default, Protocol)]
-#[protocol(command = 0xd5)]
+#[protocol(command = 0xd5, echo)]
 pub(crate) struct JumpDA {
     /// DA address
     #[protocol(echo)]
@@ -45,7 +45,7 @@ pub(crate) struct JumpDA {
 
 /// A command to read u32 from the memory
 #[derive(Default, Protocol)]
-#[protocol(command = 0xd1)]
+#[protocol(command = 0xd1, echo)]
 pub(crate) struct Read32 {
     /// Start address
     #[protocol(echo)]

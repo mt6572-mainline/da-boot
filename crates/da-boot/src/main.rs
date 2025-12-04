@@ -29,10 +29,12 @@ use crate::{
         preloader::{JumpDA, Read32, SendDA},
     },
     err::Error,
+    exploit::{Exploit as _, Exploits},
 };
 
 mod commands;
 mod err;
+mod exploit;
 mod logging;
 
 type Result<T> = core::result::Result<T, Error>;
@@ -52,6 +54,17 @@ impl DA for Port {
         self.read_exact(&mut buf)?;
         Ok(u8::from_be_bytes(buf) == expected)
     }
+}
+
+#[derive(Clone, ValueEnum, IsVariant)]
+#[clap(rename_all = "kebab_case")]
+enum Exploit {
+    /// DA2 write32 command abuse
+    Croissant,
+    /// DA1 function pointer overwrite
+    Croissant2,
+    /// DA1 hash overwrite
+    Pumpkin,
 }
 
 #[derive(Clone, IsVariant, Subcommand)]
@@ -84,6 +97,12 @@ enum Command {
         /// DA file
         #[arg(short, long)]
         input: PathBuf,
+        /// Run DA-specific exploit
+        #[arg(short, long)]
+        exploit: Option<Exploit>,
+        /// Exploit payload
+        #[arg(short, long)]
+        payload: Option<PathBuf>,
         /// Do not patch the DA even if the device is not protected
         #[arg(long)]
         quirky_preloader: bool,
@@ -413,7 +432,9 @@ fn run_preloader(mut state: State, port: Port, device_mode: DeviceMode) -> Resul
         Command::BootDA {
             input,
             quirky_preloader,
-        } => return run_da(&state, port, input, !quirky_preloader),
+            exploit,
+            payload,
+        } => return run_da(&state, port, input, !quirky_preloader, exploit, payload),
     };
 
     // This will run either preloader patcher or actual payload
@@ -551,7 +572,21 @@ fn run_preloader(mut state: State, port: Port, device_mode: DeviceMode) -> Resul
     Ok(())
 }
 
-fn run_da(state: &State, mut port: Port, input: &PathBuf, patch_da: bool) -> Result<()> {
+fn run_da_exploit(exploit: Exploits<'_>, port: &mut Port) -> Result<()> {
+    println!("{} run...", exploit.description());
+    exploit.run(port)?;
+    println!("Payloads coming soon :P");
+    Ok(())
+}
+
+fn run_da(
+    state: &State,
+    mut port: Port,
+    input: &PathBuf,
+    patch_da: bool,
+    exploit: &Option<Exploit>,
+    payload_path: &Option<PathBuf>,
+) -> Result<()> {
     let mut da = parse_da(&fs::read(input)?)?
         .into_iter()
         .find(|da| da.hw_code == 0x6572)
@@ -637,6 +672,29 @@ fn run_da(state: &State, mut port: Port, input: &PathBuf, patch_da: bool) -> Res
     status!(da1info.run(&mut port))?;
     println!("DA v{}.{}", da1info.major(), da1info.minor());
 
+    if let Some(exploit) = exploit
+        && let Some(path) = payload_path
+    {
+        let payload = fs::read(path)?;
+        if let Some(exploit) = match exploit {
+            Exploit::Croissant2 => Some(Exploits::croissant2(
+                &da1code,
+                &payload,
+                state.soc.da_sram_addr(),
+            )),
+            Exploit::Pumpkin => Some(Exploits::pumpkin(
+                &da1code,
+                &da2code,
+                &payload,
+                state.soc.da_sram_addr(),
+            )),
+            _ => None,
+        } {
+            run_da_exploit(exploit, &mut port)?;
+            return Ok(());
+        }
+    }
+
     log!("Booting da2...");
     port.write_u32(da2.base)?;
     port.write_u32(da2code.len() as u32)?;
@@ -662,6 +720,26 @@ fn run_da(state: &State, mut port: Port, input: &PathBuf, patch_da: bool) -> Res
     status!(DA2Ack::new(0x5a, 0x5a).run(&mut port))?;
 
     println!("DA2 is up and running");
+
+    if let Some(exploit) = exploit
+        && let Some(path) = payload_path
+    {
+        sleep(Duration::from_millis(1500));
+        port.clear(serialport::ClearBuffer::All)?;
+
+        let payload = fs::read(path)?;
+        if let Some(exploit) = match exploit {
+            Exploit::Croissant => Some(Exploits::croissant(
+                &da2code,
+                &payload,
+                state.soc.da_sram_addr(),
+            )),
+            _ => None,
+        } {
+            run_da_exploit(exploit, &mut port)?;
+            return Ok(());
+        }
+    }
 
     Ok(())
 }

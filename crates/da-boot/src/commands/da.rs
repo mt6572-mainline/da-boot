@@ -151,3 +151,14 @@ pub(crate) struct DA2Ack {
     #[protocol(ack(rx_then_tx))]
     da2_ack: u8,
 }
+
+#[derive(Default, Protocol)]
+#[protocol(command = 0x7b)]
+pub(crate) struct Write32 {
+    #[protocol(tx)]
+    addr: u32,
+    #[protocol(tx)]
+    data: u32,
+    #[protocol(rx, status = 0x5a)]
+    ack: u8,
+}

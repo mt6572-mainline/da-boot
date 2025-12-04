@@ -963,6 +963,7 @@ dependencies = [
  "da-soc",
  "derive-ctor",
  "derive_more",
+ "enum_dispatch",
  "serialport",
  "sha-1",
  "shared",

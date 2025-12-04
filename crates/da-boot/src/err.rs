@@ -29,6 +29,9 @@ pub enum Error {
     /// I/O error
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
+    /// I/O error
+    #[error("Failed to convert from slice: {0}")]
+    TryFromSlice(#[from] std::array::TryFromSliceError),
     /// serialport crate error
     #[error("serialport error: {0}")]
     SerialPort(#[from] serialport::Error),

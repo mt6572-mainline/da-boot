@@ -3,7 +3,7 @@ use da_boot_macros::Protocol;
 use crate::err::Error;
 
 #[derive(Default, Protocol)]
-#[protocol(command = 0xd8)]
+#[protocol(command = 0xd8, echo)]
 pub(crate) struct GetTargetConfig {
     #[protocol(rx)]
     config: u32,
@@ -22,7 +22,7 @@ impl GetTargetConfig {
 }
 
 #[derive(Default, Protocol)]
-#[protocol(command = 0xfd)]
+#[protocol(command = 0xfd, echo)]
 pub(crate) struct GetHwCode {
     #[protocol(rx, getter)]
     hwcode: u16,

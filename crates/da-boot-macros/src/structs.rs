@@ -38,11 +38,12 @@ macro_rules! dummy_err {
 pub struct DarlingProtocolArgs {
     command: Option<u8>,
     naked: Option<()>,
+    echo: Option<()>,
 }
 
 pub enum ProtocolKind {
     /// Preloader or DA command
-    Command(u8),
+    Command(u8, bool),
     /// Raw struct
     Naked,
 }
@@ -57,7 +58,7 @@ impl TryFrom<DarlingProtocolArgs> for ProtocolKind {
             return dummy_err!("struct must be command or naked");
         }
 
-        Ok(value.command.map_or(Self::Naked, Self::Command))
+        Ok(value.command.map_or(Self::Naked, |v| Self::Command(v, value.echo.is_some())))
     }
 }
 

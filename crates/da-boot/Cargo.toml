@@ -19,3 +19,4 @@ da-protocol = { path = "../da-protocol" }
 da-soc = { path = "../da-soc" }
 shared = { path = "../../payloads/shared" }
 sha-1 = "0.10.1"
+enum_dispatch = { workspace = true }

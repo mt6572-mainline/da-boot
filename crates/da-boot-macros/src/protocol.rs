@@ -371,9 +371,11 @@ pub fn da_legacy(input: TokenStream) -> TokenStream {
         })
         .collect::<Vec<_>>();
 
-    let command = if let ProtocolKind::Command(command) = args {
+    let command = if let ProtocolKind::Command(command, echo) = args {
         let ident = format_ident!("command");
-        let command_code = Codegen::new(CodegenType::U8, ident.clone(), false).load().tx().rx().echo_status().finalize();
+        let command_code = Codegen::new(CodegenType::U8, ident.clone(), false).load().tx();
+        let command_code = if echo { command_code.rx().echo_status() } else { command_code }.finalize();
+
         quote! {
             let #ident = #command;
             #command_code
