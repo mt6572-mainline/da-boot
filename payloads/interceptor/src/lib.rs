@@ -66,7 +66,7 @@ macro_rules! hook {
                 );
             }
 
-            pub(super) unsafe extern "C" fn body( $( $arg: $argty ),* ) $(-> $ret)? {
+            pub(super) unsafe extern "C" fn body($($arg: $argty),*) $(-> $ret)? {
                 $body
             }
 
