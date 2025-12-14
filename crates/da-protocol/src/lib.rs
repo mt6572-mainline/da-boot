@@ -27,6 +27,8 @@ pub enum Message<'a> {
     FlushCache { addr: u32, size: u32 },
     /// Jump to `addr`. The `addr` **must** contain **ARM** mode instructions.
     Jump { addr: u32 },
+    /// Reset the device using watchdog.
+    Reset,
 
     #[cfg(feature = "preloader")]
     /// Return to `usbdl_handler`.
@@ -61,10 +63,7 @@ impl<T: SimpleRead + SimpleWrite> Protocol<T> {
     /// Read data to the `buf` regardless of its' size.
     fn read_data<'a, U: serde::Deserialize<'a>>(&mut self, buf: &'a mut [u8]) -> Result<U> {
         let size = self.io.read_u32_be()?;
-        #[cfg(feature = "std")]
         self.io.read(&mut buf[..size as usize])?;
-        #[cfg(not(feature = "std"))]
-        self.io.read(buf, size as usize)?;
         let data = postcard::from_bytes(buf)?;
 
         Ok(data)
@@ -136,6 +135,7 @@ impl Display for Message<'_> {
                 write!(f, "Flush cache @ 0x{addr:08x} for 0x{size:x} bytes")
             }
             Self::Jump { addr } => write!(f, "Jump to 0x{addr:08x}"),
+            Self::Reset => write!(f, "Reset"),
 
             #[cfg(feature = "preloader")]
             Self::Return => write!(f, "Jump to usbdl_handler"),
