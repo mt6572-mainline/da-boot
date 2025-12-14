@@ -1,154 +1,158 @@
-use std::io::{Read, Write};
+#![cfg_attr(not(feature = "std"), no_std)]
 
-use serialport::SerialPort;
+use core::{borrow::Borrow, fmt::Display};
+
+use da_port::{SimpleRead, SimpleWrite};
+use derive_ctor::ctor;
+use derive_more::IsVariant;
+use serde::{Deserialize, Serialize};
 
 use crate::err::Error;
 
 pub mod err;
 
-type Result<T> = core::result::Result<T, Error>;
-pub type Port = Box<dyn SerialPort>;
+pub type Result<T> = core::result::Result<T, Error>;
 
-pub trait FromBytes<const N: usize> {
-    fn from_be(bytes: [u8; N]) -> Self;
-    fn from_le(bytes: [u8; N]) -> Self;
+/// Protocol messages
+#[derive(ctor, Serialize, Deserialize, IsVariant)]
+#[repr(u8)]
+pub enum Message<'a> {
+    /// Heartbeat.
+    Ack = 0x42,
+    /// Read data at `addr` with `size` length.
+    Read { addr: u32, size: u32 },
+    /// Write `data` to `addr`.
+    Write { addr: u32, data: &'a [u8] },
+    /// Flush I and D-cache at `addr` with `size` aligned to 64.
+    FlushCache { addr: u32, size: u32 },
+    /// Jump to `addr`. The `addr` **must** contain **ARM** mode instructions.
+    Jump { addr: u32 },
+
+    #[cfg(feature = "preloader")]
+    /// Return to `usbdl_handler`.
+    Return,
 }
 
-pub trait ToBytes<const N: usize> {
-    fn to_be(&self) -> [u8; N];
-    fn to_le(&self) -> [u8; N];
+/// Protocol responses
+#[derive(ctor, Serialize, Deserialize, IsVariant)]
+#[repr(u8)]
+pub enum Response<'a> {
+    /// Operation succeed.
+    Ack = 0xDD,
+    /// Operation failed.
+    Nack = !0xDD,
+    /// Read data.
+    Read { data: &'a [u8] },
 }
 
-pub trait SimpleRead: Write {
-    fn simple_read_be<T: FromBytes<N>, const N: usize>(&mut self) -> Result<T>;
-    fn simple_read_le<T: FromBytes<N>, const N: usize>(&mut self) -> Result<T>;
-
-    fn read_u8(&mut self) -> Result<u8> {
-        self.simple_read_be()
-    }
-
-    fn read_u16_be(&mut self) -> Result<u16> {
-        self.simple_read_be()
-    }
-
-    fn read_u32_be(&mut self) -> Result<u32> {
-        self.simple_read_be()
-    }
-
-    fn read_u16_le(&mut self) -> Result<u16> {
-        self.simple_read_le()
-    }
-
-    fn read_u32_le(&mut self) -> Result<u32> {
-        self.simple_read_le()
-    }
+/// `da-boot` protocol to communicate between host and device
+///
+/// The protocol itself is really simple:
+/// - length of the payload - u32
+/// - data
+///
+/// It's up to host to not overflow the buffer with `Message::Read`, `Message::Write` and `Response::Read`.
+#[derive(ctor)]
+pub struct Protocol<T: SimpleRead + SimpleWrite> {
+    io: T,
 }
 
-pub trait SimpleWrite {
-    fn simple_write_be<T: ToBytes<N>, const N: usize>(&mut self, value: T) -> Result<()>;
-    fn simple_write_le<T: ToBytes<N>, const N: usize>(&mut self, value: T) -> Result<()>;
+impl<T: SimpleRead + SimpleWrite> Protocol<T> {
+    /// Read data to the `buf` regardless of its' size.
+    fn read_data<'a, U: serde::Deserialize<'a>>(&mut self, buf: &'a mut [u8]) -> Result<U> {
+        let size = self.io.read_u32_be()?;
+        #[cfg(feature = "std")]
+        self.io.read(&mut buf[..size as usize])?;
+        #[cfg(not(feature = "std"))]
+        self.io.read(buf, size as usize)?;
+        let data = postcard::from_bytes(buf)?;
 
-    fn write_u8(&mut self, value: u8) -> Result<()> {
-        self.simple_write_be(value)
+        Ok(data)
     }
 
-    fn write_u16_be(&mut self, value: u16) -> Result<()> {
-        self.simple_write_be(value)
+    /// Write `data` to the target.
+    ///
+    /// The `buf` is used for serialization without allocating temporary buffer.
+    fn write_data<'a, U: serde::Serialize + Borrow<U>>(
+        &mut self,
+        buf: &'a mut [u8],
+        data: U,
+    ) -> Result<()> {
+        let bytes = postcard::to_slice(&data, buf)?;
+        self.io.write_u32_be(bytes.len() as u32)?;
+        self.io.write(&bytes).map_err(|e| e.into())
     }
 
-    fn write_u32_be(&mut self, value: u32) -> Result<()> {
-        self.simple_write_be(value)
+    /// Receive message
+    ///
+    /// The message lives as long as the `buf` is valid.
+    pub fn read_message<'a>(&mut self, buf: &'a mut [u8]) -> Result<Message<'a>> {
+        self.read_data(buf)
     }
 
-    fn write_u16_le(&mut self, value: u16) -> Result<()> {
-        self.simple_write_le(value)
+    /// Send message
+    ///
+    /// The `buf` is used to store the serialized data.
+    pub fn send_message<'a, U: serde::Serialize + Borrow<Message<'a>>>(
+        &mut self,
+        buf: &mut [u8],
+        message: U,
+    ) -> Result<()> {
+        self.write_data(buf, message)
     }
 
-    fn write_u32_le(&mut self, value: u32) -> Result<()> {
-        self.simple_write_le(value)
-    }
-}
-
-impl FromBytes<1> for u8 {
-    fn from_be(bytes: [u8; 1]) -> Self {
-        Self::from_be_bytes(bytes)
+    /// Receive response
+    ///
+    /// The response lives as long as the `buf` is valid.
+    pub fn read_response<'a>(&mut self, buf: &'a mut [u8]) -> Result<Response<'a>> {
+        self.read_data(buf)
     }
 
-    fn from_le(bytes: [u8; 1]) -> Self {
-        Self::from_le_bytes(bytes)
-    }
-}
-
-impl ToBytes<1> for u8 {
-    fn to_be(&self) -> [u8; 1] {
-        self.to_be_bytes()
-    }
-
-    fn to_le(&self) -> [u8; 1] {
-        self.to_le_bytes()
-    }
-}
-
-impl FromBytes<2> for u16 {
-    fn from_be(bytes: [u8; 2]) -> Self {
-        Self::from_be_bytes(bytes)
+    /// Send response
+    ///
+    /// The `buf` is used to store the serialized data.
+    pub fn send_response<'a, U: serde::Serialize + Borrow<Response<'a>>>(
+        &mut self,
+        buf: &mut [u8],
+        response: U,
+    ) -> Result<()> {
+        self.write_data(buf, response)
     }
 
-    fn from_le(bytes: [u8; 2]) -> Self {
-        Self::from_le_bytes(bytes)
-    }
-}
-
-impl ToBytes<2> for u16 {
-    fn to_be(&self) -> [u8; 2] {
-        self.to_be_bytes()
-    }
-
-    fn to_le(&self) -> [u8; 2] {
-        self.to_le_bytes()
-    }
-}
-
-impl FromBytes<4> for u32 {
-    fn from_be(bytes: [u8; 4]) -> Self {
-        Self::from_be_bytes(bytes)
-    }
-
-    fn from_le(bytes: [u8; 4]) -> Self {
-        Self::from_le_bytes(bytes)
-    }
-}
-
-impl ToBytes<4> for u32 {
-    fn to_be(&self) -> [u8; 4] {
-        self.to_be_bytes()
-    }
-
-    fn to_le(&self) -> [u8; 4] {
-        self.to_le_bytes()
+    /// Recommended buffer size for read/write operations, considering preloader stack limitation
+    #[must_use]
+    pub const fn rw_buffer_size() -> usize {
+        2048 - max(size_of::<Message>(), size_of::<Response>())
     }
 }
 
-impl SimpleRead for Port {
-    fn simple_read_be<T: FromBytes<N>, const N: usize>(&mut self) -> Result<T> {
-        let mut bytes = [0; N];
-        self.read_exact(&mut bytes)?;
-        Ok(T::from_be(bytes))
-    }
+impl Display for Message<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Ack => write!(f, "ACK"),
+            Self::Read { addr, size } => write!(f, "Read @ 0x{addr:08x} for 0x{size:x} bytes"),
+            Self::Write { addr, data } => write!(f, "Write @ 0x{addr:08x}: {data:x?}"),
+            Self::FlushCache { addr, size } => {
+                write!(f, "Flush cache @ 0x{addr:08x} for 0x{size:x} bytes")
+            }
+            Self::Jump { addr } => write!(f, "Jump to 0x{addr:08x}"),
 
-    fn simple_read_le<T: FromBytes<N>, const N: usize>(&mut self) -> Result<T> {
-        let mut bytes = [0; N];
-        self.read_exact(&mut bytes)?;
-        Ok(T::from_le(bytes))
+            #[cfg(feature = "preloader")]
+            Self::Return => write!(f, "Jump to usbdl_handler"),
+        }
     }
 }
 
-impl SimpleWrite for Port {
-    fn simple_write_be<T: ToBytes<N>, const N: usize>(&mut self, value: T) -> Result<()> {
-        self.write_all(&value.to_be()).map_err(|e| e.into())
+impl Display for Response<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Ack => write!(f, "ACK"),
+            Self::Nack => write!(f, "Not ACK"),
+            Self::Read { data } => write!(f, "Data: {data:x?}"),
+        }
     }
+}
 
-    fn simple_write_le<T: ToBytes<N>, const N: usize>(&mut self, value: T) -> Result<()> {
-        self.write_all(&value.to_le()).map_err(|e| e.into())
-    }
+const fn max(a: usize, b: usize) -> usize {
+    if a > b { a } else { b }
 }

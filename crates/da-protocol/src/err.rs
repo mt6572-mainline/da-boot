@@ -1,12 +1,12 @@
 use thiserror::Error as TError;
 
+/// Protocol errors
 #[derive(Debug, TError)]
 pub enum Error {
-    /// `serialport` crate error
-    #[error("serialport error: {0}")]
-    SerialPort(#[from] serialport::Error),
-
-    /// I/O error
-    #[error("I/O error: {0}")]
-    Io(#[from] std::io::Error),
+    /// postcard crate error
+    #[error("postcard error: {0}")]
+    Postcard(#[from] postcard::Error),
+    /// `da-port` error
+    #[error("da-port error: {0}")]
+    DAPort(#[from] da_port::err::Error),
 }
