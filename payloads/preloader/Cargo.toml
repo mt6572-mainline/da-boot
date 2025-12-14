@@ -9,3 +9,6 @@ shared = { path = "../shared" }
 interceptor = { path = "../interceptor" }
 bump = { path = "../bump" }
 ufmt = "0.2.0"
+da-port = { path = "../../crates/da-port" }
+da-protocol = { path = "../../crates/da-protocol", features = ["preloader"] }
+derive-ctor = { workspace = true }

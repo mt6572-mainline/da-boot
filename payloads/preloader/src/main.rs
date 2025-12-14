@@ -3,13 +3,15 @@
 
 use core::{
     arch::{asm, global_asm},
-    hint::unreachable_unchecked,
     mem::transmute,
     panic::PanicInfo,
     ptr,
 };
 
 use bump::BumpAllocator;
+use da_port::{SimpleRead, SimpleWrite};
+use da_protocol::{Message, Protocol, Response};
+use derive_ctor::ctor;
 use heapless::String;
 use interceptor::{Interceptor, c_function, hook};
 use shared::{LK_BASE, PRELOADER_BASE, flush_cache, search, search_pattern, uart_print, uart_println, uart_putc};
@@ -43,24 +45,6 @@ macro_rules! status {
         }
     }};
 }
-
-macro_rules! dl_fn {
-    ($name:ident, $ty:ty, $len:expr) => {
-        unsafe fn $name(addr: usize) -> $ty {
-            let mut buf = [0u8; $len];
-            let ptr: UsbRecv = unsafe { transmute(addr | 1) };
-            // ptr, len, timeout (ms)
-            if unsafe { ptr(buf.as_mut_ptr(), $len, 0) } != 0 {
-                uart_println!("usb_recv failed");
-                panic!();
-            }
-            <$ty>::from_be_bytes(buf)
-        }
-    };
-}
-
-dl_fn!(dl8, u8, 1);
-dl_fn!(dl32, u32, 4);
 
 macro_rules! uart_printfln {
     ($s:expr, $fmt:literal $(, $($arg:tt)+)?) => {{
@@ -105,69 +89,106 @@ mod hooks {
     }
 }
 
+#[derive(ctor)]
+struct USB {
+    recv: unsafe extern "C" fn(*mut u8, u32, u32) -> u32,
+    send: unsafe extern "C" fn(*const u8, u32),
+}
+impl SimpleRead for USB {
+    fn read(&mut self, buf: &mut [u8]) -> da_port::Result<()> {
+        unsafe { (self.recv)(buf.as_mut_ptr(), buf.len() as u32, 0) };
+        Ok(())
+    }
+}
+
+impl SimpleWrite for USB {
+    fn write(&mut self, buf: &[u8]) -> da_port::Result<()> {
+        unsafe { (self.send)(buf.as_ptr(), buf.len() as u32) };
+        Ok(())
+    }
+}
+
 type UsbdlHandler = unsafe extern "C" fn(u32, u32);
-/// usb_send(u8* buf, u32 size);
-type UsbSend = unsafe extern "C" fn(*const u8, u32);
-/// usb_recv(u8* buf, u32 size, u32 timeout);
-type UsbRecv = unsafe extern "C" fn(*mut u8, u32, u32) -> i32;
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn main() -> ! {
     uart_println!("");
     uart_println!("Hello from Rust :)");
 
-    let addr = status!("usbdl_handler", { search!(PRELOADER_BASE, PRELOADER_END, 0xe92d, 0x4ef0, 0x460e) });
-    let usbdl_handler: UsbdlHandler = unsafe { transmute(addr | 1) };
+    let usbdl_handler_addr = status!("usbdl_handler", { search!(PRELOADER_BASE, PRELOADER_END, 0xe92d, 0x4ef0, 0x460e) });
 
-    let addr = status!("usb_send", { search!(PRELOADER_BASE, PRELOADER_END, 0xb508, 0x4603, 0x2200, 0x4608, 0x4619) });
-    let usb_send: UsbSend = unsafe { transmute(addr | 1) };
+    let send_addr = status!("usb_send", { search!(PRELOADER_BASE, PRELOADER_END, 0xb508, 0x4603, 0x2200, 0x4608, 0x4619) });
 
-    let addr = status!("usb_recv", { search!(PRELOADER_BASE, PRELOADER_END, 0xe92d, 0x42f0, 0x4605, 0x2000) });
-    let usb_recv: UsbRecv = unsafe { transmute(addr | 1) };
+    let recv_addr = status!("usb_recv", { search!(PRELOADER_BASE, PRELOADER_END, 0xe92d, 0x42f0, 0x4605, 0x2000) });
 
     let bldr_jump = status!("bldr_jump", { search!(PRELOADER_BASE, PRELOADER_END, 0xe92d, 0x46f8, 0x4691, 0x4604) });
+
     unsafe {
         Interceptor::init();
         hooks::bldr_jump::replace(bldr_jump | 1);
         (LK_KERNEL_ADDR as *mut u32).write(MAGIC);
     }
 
+    let mut buf = [0; 1024];
     let mut s = String::<64>::new();
 
-    uart_println!("Ready for commands...");
+    let usb = unsafe { USB::new(transmute(recv_addr | 1), transmute(send_addr | 1)) };
+    let mut protocol = Protocol::new(usb);
+
+    if protocol.send_message(&mut buf, Message::ack()).is_err() {
+        uart_println!("Failed to send ack");
+        panic!();
+    }
+
+    if let Ok(r) = protocol.read_response(&mut buf)
+        && r.is_ack()
+    {
+        uart_println!("Ready for commands");
+    } else {
+        uart_println!("Got invalid ack");
+        panic!();
+    }
+
     loop {
-        let command = unsafe { dl8(addr) };
-        unsafe { usb_send([command].as_ptr(), 1) };
-        uart_printfln!(s, "Got 0x{:x}", command);
-
-        match command {
-            // patch
-            0x01 => unsafe {
-                let da_addr = dl32(addr);
-                let len = dl32(addr);
-
-                uart_printfln!(s, "Patching 0x{:x}..0x{:x}...", da_addr, da_addr + len);
-
-                usb_recv(da_addr as *mut u8, len, 0);
-                uart_print!("flush...");
-                flush_cache(da_addr as usize, len as usize);
-                uart_println!("ok");
+        let response = match protocol.read_message(&mut buf) {
+            Ok(message) => match message {
+                Message::Ack => Response::ack(),
+                Message::Read { addr, size } => unsafe {
+                    let data = core::slice::from_raw_parts(addr as *const u8, size as usize);
+                    Response::read(data)
+                },
+                Message::Write { addr, data } => unsafe {
+                    ptr::copy_nonoverlapping(data.as_ptr(), addr as _, data.len());
+                    Response::ack()
+                },
+                Message::FlushCache { addr, size } => unsafe {
+                    flush_cache(addr as usize, size as usize);
+                    Response::ack()
+                },
+                Message::Jump { addr } => unsafe {
+                    asm!("dsb; isb");
+                    c_function!(fn() -> (), addr as usize)();
+                    Response::nack()
+                },
+                Message::Reset => unsafe {
+                    (0x10007014 as *mut u32).write_volatile(0x1209);
+                    Response::ack()
+                },
+                Message::Return => unsafe {
+                    asm!("dsb; isb");
+                    c_function!(fn(u32, u32) -> (), usbdl_handler_addr | 1)(ptr::read_volatile(DLCOMPORT_PTR as *const u32), 300);
+                    Response::nack()
+                },
             },
-            // dump preloader
-            0x02 => unsafe {
-                uart_print!("Dumping preloader...");
-                usb_send(DA_PATCHER_PRELOADER_SIZE.to_be_bytes().as_ptr(), 4);
-                usb_send(PRELOADER_BASE as *const u8, DA_PATCHER_PRELOADER_SIZE);
-                uart_println!("ok");
-            },
-            // jump back
-            0x03 => unsafe {
-                uart_println!("Jumping to usbdl_handler...");
-                asm!("dsb; isb");
-                usbdl_handler(ptr::read_volatile(DLCOMPORT_PTR as *const u32), 300);
-                unreachable_unchecked();
-            },
-            _ => uart_println!("Unknown command"),
+            Err(e) => {
+                uart_println!("Error reading message");
+                Response::nack()
+            }
+        };
+
+        if let Err(e) = protocol.send_response(&mut buf, response) {
+            uart_println!("Error sending response, giving up");
+            panic!();
         }
     }
 }
