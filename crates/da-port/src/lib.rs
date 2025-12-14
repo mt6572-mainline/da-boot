@@ -23,25 +23,16 @@ pub trait ToBytes<const N: usize> {
 }
 
 pub trait SimpleRead {
-    #[cfg(not(feature = "std"))]
-    fn read(&mut self, buf: &mut [u8], n: usize) -> Result<()>;
-    #[cfg(feature = "std")]
     fn read(&mut self, buf: &mut [u8]) -> Result<()>;
 
     fn simple_read_be<T: FromBytes<N>, const N: usize>(&mut self) -> Result<T> {
         let mut bytes = [0; N];
-        #[cfg(not(feature = "std"))]
-        Self::read(self, &mut bytes, N);
-        #[cfg(feature = "std")]
         Self::read(self, &mut bytes)?;
         Ok(T::from_be(bytes))
     }
 
     fn simple_read_le<T: FromBytes<N>, const N: usize>(&mut self) -> Result<T> {
         let mut bytes = [0; N];
-        #[cfg(not(feature = "std"))]
-        Self::read(self, &mut bytes, N)?;
-        #[cfg(feature = "std")]
         Self::read(self, &mut bytes)?;
         Ok(T::from_le(bytes))
     }
@@ -71,11 +62,11 @@ pub trait SimpleWrite {
     fn write(&mut self, buf: &[u8]) -> Result<()>;
 
     fn simple_write_be<T: ToBytes<N>, const N: usize>(&mut self, value: T) -> Result<()> {
-        Self::write(self, &value.to_be()).map_err(|e| e.into())
+        Self::write(self, &value.to_be())
     }
 
     fn simple_write_le<T: ToBytes<N>, const N: usize>(&mut self, value: T) -> Result<()> {
-        Self::write(self, &value.to_le()).map_err(|e| e.into())
+        Self::write(self, &value.to_le())
     }
 
     fn write_u8(&mut self, value: u8) -> Result<()> {
