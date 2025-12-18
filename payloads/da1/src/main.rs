@@ -27,17 +27,17 @@ pub unsafe extern "C" fn main(pc: usize) -> ! {
     let start = pc - (4 * 5) - 8; // 5 instructions + pipeline
 
     unsafe {
-        let cmp_addr = ptr::read_volatile(start as *const usize); // cmp instruction address
-        let ptr = ptr::read_volatile((start - 4) as *const usize); // croissant2 fn ptr
+        let cmp_addr = ptr::read_volatile(start as *const *mut u16); // cmp instruction address
+        let ptr = ptr::read_volatile((start - 4) as *const *mut u32); // croissant2 fn ptr
         let original_fn = ptr::read_volatile((start - 8) as *const u32); // croissant2 fn ptr value, 'p' in the pumpkin mode
         let jump = ptr::read_volatile((start - 12) as *const usize); // function to receive and boot da2
 
         // Croissant2 mode: restore fn ptr
         if (original_fn & 0xff) as u8 != b'p' {
-            ptr::write_volatile(ptr as *mut u32, original_fn);
+            ptr.write_volatile(original_fn);
         }
 
-        ptr::write_volatile(cmp_addr as *mut u16, 0x4289); // cmp r1, r2 -> cmp r1, r1
+        cmp_addr.write_volatile(0x4289); // cmp r1, r2 -> cmp r1, r1
         flush_icache();
 
         uart_putc(b'j');
