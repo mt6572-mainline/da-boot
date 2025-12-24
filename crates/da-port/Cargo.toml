@@ -4,7 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-std = ["thiserror/std", "serialport"]
+std = ["thiserror/std"]
+serialport = ["dep:serialport"]
 
 [dependencies]
 thiserror = { version = "2.0.16", default-features = false }

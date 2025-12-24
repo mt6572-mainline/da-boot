@@ -1,6 +1,6 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
-#[cfg(feature = "std")]
+#[cfg(feature = "serialport")]
 use serialport::SerialPort;
 
 use crate::err::Error;
@@ -9,7 +9,7 @@ pub mod err;
 
 pub type Result<T> = core::result::Result<T, Error>;
 
-#[cfg(feature = "std")]
+#[cfg(feature = "serialport")]
 pub type Port = Box<dyn SerialPort>;
 
 pub trait FromBytes<const N: usize> {
@@ -151,14 +151,14 @@ impl ToBytes<4> for u32 {
 }
 
 #[cfg(feature = "std")]
-impl SimpleRead for Port {
+impl<T: std::io::Read> SimpleRead for T {
     fn read(&mut self, buf: &mut [u8]) -> Result<()> {
         self.read_exact(buf).map_err(|e| e.into())
     }
 }
 
 #[cfg(feature = "std")]
-impl SimpleWrite for Port {
+impl<T: std::io::Write> SimpleWrite for T {
     fn write(&mut self, buf: &[u8]) -> Result<()> {
         self.write_all(buf).map_err(|e| e.into())
     }
