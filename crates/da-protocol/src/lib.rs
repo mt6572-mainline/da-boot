@@ -2,7 +2,7 @@
 
 use core::{borrow::Borrow, fmt::Display};
 
-use da_port::{SimpleRead, SimpleWrite};
+use simpleport::{SimpleRead, SimpleWrite};
 use derive_ctor::ctor;
 use derive_more::IsVariant;
 use serde::{Deserialize, Serialize};
@@ -130,7 +130,11 @@ impl Display for Message<'_> {
         match self {
             Self::Ack => write!(f, "ACK"),
             Self::Read { addr, size } => write!(f, "Read @ 0x{addr:08x} for 0x{size:x} bytes"),
-            Self::Write { addr, data } => write!(f, "Write @ 0x{addr:08x}: {data:x?}"),
+            Self::Write { addr, data } => {
+                write!(f, "Write @ 0x{addr:08x}: [")?;
+                format_slice(f, data)?;
+                write!(f, "]")
+            }
             Self::FlushCache { addr, size } => {
                 write!(f, "Flush cache @ 0x{addr:08x} for 0x{size:x} bytes")
             }
@@ -148,11 +152,26 @@ impl Display for Response<'_> {
         match self {
             Self::Ack => write!(f, "ACK"),
             Self::Nack => write!(f, "Not ACK"),
-            Self::Read { data } => write!(f, "Data: {data:x?}"),
+            Self::Read { data } => {
+                write!(f, "Data: [")?;
+                format_slice(f, data)?;
+                write!(f, "]")
+            }
         }
     }
 }
 
 const fn max(a: usize, b: usize) -> usize {
     if a > b { a } else { b }
+}
+
+fn format_slice(f: &mut core::fmt::Formatter, data: &[u8]) -> core::fmt::Result {
+    for (i, byte) in data.iter().enumerate() {
+        if i != 0 {
+            write!(f, ", ")?;
+        }
+        write!(f, "{:#04x}", byte)?;
+    }
+
+    Ok(())
 }

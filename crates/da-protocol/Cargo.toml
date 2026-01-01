@@ -4,13 +4,13 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-std = ["da-port/std"]
+std = ["simpleport/std", "simpleport/serialport"]
 preloader = []
 
 [dependencies]
 postcard = "1.1.3"
 serde = { version = "1.0.228", default-features = false, features = ["derive"] }
-da-port = { path = "../da-port", default-features = false }
+simpleport = { workspace = true }
 thiserror = { version = "2.0.16", default-features = false }
 derive-ctor = { workspace = true }
 derive_more = { version = "2.0.1", default-features = false, features = ["is_variant"] }

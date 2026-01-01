@@ -8,5 +8,5 @@ pub enum Error {
     Postcard(#[from] postcard::Error),
     /// `da-port` error
     #[error("da-port error: {0}")]
-    DAPort(#[from] da_port::err::Error),
+    DAPort(#[from] simpleport::err::Error),
 }
