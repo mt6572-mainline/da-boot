@@ -9,12 +9,12 @@ use core::{
 };
 
 use bump::BumpAllocator;
-use da_port::{SimpleRead, SimpleWrite};
 use da_protocol::{Message, Protocol, Response};
 use derive_ctor::ctor;
 use heapless::String;
 use interceptor::{Interceptor, c_function, hook};
 use shared::{LK_BASE, PRELOADER_BASE, flush_cache, search, search_pattern, uart_print, uart_println, uart_putc};
+use simpleport::{SimpleRead, SimpleWrite};
 use ufmt::uwrite;
 
 const PRELOADER_END: usize = PRELOADER_BASE + 0x10000;
@@ -95,14 +95,14 @@ struct USB {
     send: unsafe extern "C" fn(*const u8, u32),
 }
 impl SimpleRead for USB {
-    fn read(&mut self, buf: &mut [u8]) -> da_port::Result<()> {
+    fn read(&mut self, buf: &mut [u8]) -> simpleport::Result<()> {
         unsafe { (self.recv)(buf.as_mut_ptr(), buf.len() as u32, 0) };
         Ok(())
     }
 }
 
 impl SimpleWrite for USB {
-    fn write(&mut self, buf: &[u8]) -> da_port::Result<()> {
+    fn write(&mut self, buf: &[u8]) -> simpleport::Result<()> {
         unsafe { (self.send)(buf.as_ptr(), buf.len() as u32) };
         Ok(())
     }
