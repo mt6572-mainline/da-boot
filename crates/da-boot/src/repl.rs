@@ -78,11 +78,10 @@ impl Command {
     }
 }
 
-pub fn run_repl(mut protocol: Protocol<simpleport::Port>) -> Result<()> {
+pub fn run_repl(mut protocol: Protocol<simpleport::Port, 2048>) -> Result<()> {
     println!("Enter --help for help, Ctrl-C to exit");
 
     let mut rl = DefaultEditor::new()?;
-    let mut buf = [0; 1024];
 
     loop {
         let line = rl.readline("> ").map(|l| l.trim().to_owned());
@@ -97,7 +96,7 @@ pub fn run_repl(mut protocol: Protocol<simpleport::Port>) -> Result<()> {
                 match REPL::try_parse_from(once("repl").chain(line.split(" "))) {
                     Ok(repl) => {
                         let message = repl.command.as_message();
-                        match protocol.send_message(&mut buf, &message) {
+                        match protocol.send_message(&message) {
                             Ok(_) => println!("=> {message}"),
                             Err(e) => {
                                 eprintln!("Failed to send message: {e}");
@@ -105,7 +104,7 @@ pub fn run_repl(mut protocol: Protocol<simpleport::Port>) -> Result<()> {
                             }
                         }
 
-                        match protocol.read_response(&mut buf) {
+                        match protocol.read_response() {
                             Ok(r) => println!("<= {r}"),
                             Err(e) => Err(e)?,
                         }

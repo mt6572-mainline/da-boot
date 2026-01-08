@@ -11,6 +11,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use clap_num::maybe_hex;
 use colored::Colorize;
 use da_patcher::{Assembler, Disassembler, Patch as _, PatchCollection, preloader::Preloader};
+use da_protocol::{Message, Protocol};
 use da_soc::SoC;
 use derive_ctor::ctor;
 use derive_more::IsVariant;
@@ -26,12 +27,16 @@ use crate::{
     },
     err::Error,
     exploit::{Exploit as _, Exploits},
+    repl::run_repl,
+    rpc::HostExtensions,
 };
 
 mod commands;
 mod err;
 mod exploit;
 mod logging;
+mod repl;
+mod rpc;
 
 type Result<T> = core::result::Result<T, Error>;
 
@@ -56,6 +61,7 @@ enum Mode {
     #[default]
     Raw,
     Lk,
+    REPL,
 }
 
 #[derive(Parser)]
@@ -85,7 +91,7 @@ struct Cli {
     #[arg(short, long, value_parser=maybe_hex::<u32>)]
     jump_address: Option<u32>,
 
-    /// Payload boot mode
+    /// Boot mode
     #[arg(short, long)]
     mode: Option<Mode>,
 
@@ -359,58 +365,8 @@ fn run_preloader(state: State, port: Port, device_mode: DeviceMode) -> Result<()
 
     run_payload(da_addr, &payload, &mut port)?;
 
-    let mut payload = match &state.cli.preloader {
-        Some(p) => fs::read(p)?,
-        None => {
-            log!("No preloader specified, dumping from RAM...");
-            status!(DumpPreloader::new().run_preloader(&mut port))?
-        }
-    };
-
-    let asm = Assembler::try_new()?;
-    let disasm = Disassembler::try_new()?;
-
-    println!("Patching preloader...");
-    for i in [
-        Preloader::security(&asm, &disasm),
-        Preloader::hardcoded(&asm, &disasm),
-    ]
-    .iter()
-    .flatten()
-    {
-        let offset = match i.offset(&payload) {
-            Ok(offset) => offset,
-            Err(e) => {
-                println!("{}: {e}", i.on_failure().red());
-                continue;
-            }
-        };
-
-        let replacement = i.replacement(&mut payload)?;
-
-        if replacement.len() % 2 != 0 {
-            return Err(Error::Custom(
-                "Replacement is not aligned to 2, please fix da-patcher".into(),
-            ));
-        }
-
-        match Patch::new(
-            state.soc.preloader_addr() + offset as u32,
-            replacement.len() as u32,
-            &replacement,
-        )
-        .run(&mut port)
-        {
-            Ok(_) => println!("{}", i.on_success().green()),
-            Err(e) => println!("{}: {e}", i.on_failure().red()),
-        }
-    }
-
-    log!("Jumping back to usbdl_handler...");
-    status!(Return::new().run(&mut port))?;
-
-    log!("Trying to sync with patched preloader...");
-    status!(handshake(&mut port))?;
+    let mut protocol = Protocol::new(port, [0; 2048]);
+    protocol.start()?;
 
     let mode = state.cli.mode.unwrap_or_default();
 
@@ -426,25 +382,32 @@ fn run_preloader(state: State, port: Port, device_mode: DeviceMode) -> Result<()
             payload.drain(0..0x200);
         }
         log!("Uploading payload to {a:#x}...");
-        status!(SendDA::new(a, payload.len() as u32, 0, &payload).run(&mut port))?;
+        status!(protocol.upload(a, &payload))?;
     }
 
-    if mode.is_lk() {
-        log!("Preparing boot argument for LK...");
-        let payload = bincode::encode_to_vec(
-            BootArgument::lk(state.cli.lk_mode.unwrap_or_default()),
-            bincode::config::standard()
-                .with_little_endian()
-                .with_fixed_int_encoding(),
-        )?;
-        status!(SendDA::new(BOOT_ARG_ADDR, payload.len() as u32, 0, &payload).run(&mut port))?;
+    match mode {
+        Mode::Raw => (),
+        Mode::Lk => {
+            log!("Preparing boot argument for LK...");
+            let payload = bincode::encode_to_vec(
+                BootArgument::lk(state.cli.lk_mode.unwrap_or_default()),
+                bincode::config::standard()
+                    .with_little_endian()
+                    .with_fixed_int_encoding(),
+            )?;
+            status!(protocol.upload(BOOT_ARG_ADDR, &payload))?;
+        }
+        Mode::REPL => return run_repl(protocol),
     }
 
     let jump = state.cli.jump_address.unwrap_or(da_addr);
     log!("Jumping to {jump:#x}...");
-    status!(JumpDA::new(jump).run(&mut port))?;
-
-    Ok(())
+    status!(protocol.send_message(Message::jump(jump)))?;
+    if protocol.read_response().is_ok_and(|r| r.is_nack()) {
+        Err(Error::Custom("Jump failed".into()))
+    } else {
+        Ok(())
+    }
 }
 
 fn invalidate_ready(port: &mut Port) -> Result<()> {
