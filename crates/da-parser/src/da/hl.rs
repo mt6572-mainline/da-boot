@@ -10,11 +10,11 @@ use crate::{HLParser, LLParser, Result, da::ll};
 #[derive(Debug, Getters)]
 pub struct DA {
     /// Build ID
-    #[getset(get = "pub")]
+    #[getset(get = "pub", get_mut = "pub")]
     build_id: String,
 
     /// Entries per SoC
-    #[getset(get = "pub")]
+    #[getset(get = "pub", get_mut = "pub")]
     entries: Vec<Entry>,
 }
 
@@ -60,28 +60,34 @@ impl DA {
     pub fn hwcode(&self, hwcode: u16) -> Option<&Entry> {
         self.entries.iter().find(|e| e.hw_code == hwcode)
     }
+
+    /// Get DA entry by `hwcode`
+    #[must_use]
+    pub fn hwcode_mut(&mut self, hwcode: u16) -> Option<&mut Entry> {
+        self.entries.iter_mut().find(|e| e.hw_code == hwcode)
+    }
 }
 
 #[derive(Debug, Getters)]
 pub struct Entry {
     /// SoC hwcode
-    #[getset(get = "pub")]
+    #[getset(get = "pub", get_mut = "pub")]
     hw_code: u16,
 
     /// SoC hw subcode
-    #[getset(get = "pub")]
+    #[getset(get = "pub", get_mut = "pub")]
     hw_subcode: u16,
 
     /// SoC hw version
-    #[getset(get = "pub")]
+    #[getset(get = "pub", get_mut = "pub")]
     hw_version: u16,
 
     /// SoC sw version
-    #[getset(get = "pub")]
+    #[getset(get = "pub", get_mut = "pub")]
     sw_version: u16,
 
     /// Regions
-    #[getset(get = "pub")]
+    #[getset(get = "pub", get_mut = "pub")]
     regions: Vec<Region>,
 }
 
@@ -138,25 +144,37 @@ impl Entry {
         self.regions.get(1)
     }
 
+    /// DA1 region
+    #[must_use]
+    pub fn da1_mut(&mut self) -> Option<&mut Region> {
+        self.regions.get_mut(1)
+    }
+
     /// DA2 region
     #[must_use]
     pub fn da2(&self) -> Option<&Region> {
         self.regions.get(2)
+    }
+
+    /// DA2 region
+    #[must_use]
+    pub fn da2_mut(&mut self) -> Option<&mut Region> {
+        self.regions.get_mut(2)
     }
 }
 
 #[derive(Debug, Getters)]
 pub struct Region {
     /// Executable code
-    #[getset(get = "pub")]
+    #[getset(get = "pub", get_mut = "pub")]
     code: Vec<u8>,
 
     /// Code signature
-    #[getset(get = "pub")]
+    #[getset(get = "pub", get_mut = "pub")]
     signature: Vec<u8>,
 
     /// Code base address
-    #[getset(get = "pub")]
+    #[getset(get = "pub", get_mut = "pub")]
     base: u32,
 }
 
