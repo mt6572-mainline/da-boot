@@ -164,7 +164,6 @@ enum DeviceMode {
 struct State {
     pub soc: SoC,
     pub cli: Cli,
-    pub is_preloader_patched: bool,
 }
 
 fn get_ports() -> Result<Vec<(DeviceMode, SerialPortInfo)>> {
@@ -327,7 +326,6 @@ fn run_brom(mut state: State, mut port: Port, device_mode: DeviceMode) -> Result
     println!("Jumping to {preloader_base:#x}...");
 
     state.cli.crash = false;
-    state.is_preloader_patched = true;
 
     drop(port);
     sleep(Duration::from_millis(100));
@@ -339,7 +337,7 @@ fn run_brom(mut state: State, mut port: Port, device_mode: DeviceMode) -> Result
     return run_preloader(state, port, device_mode);
 }
 
-fn run_preloader(mut state: State, port: Port, device_mode: DeviceMode) -> Result<()> {
+fn run_preloader(state: State, port: Port, device_mode: DeviceMode) -> Result<()> {
     assert!(device_mode.is_preloader());
 
     let mut port = mt6572_preloader_workaround(port)?;
@@ -359,70 +357,60 @@ fn run_preloader(mut state: State, port: Port, device_mode: DeviceMode) -> Resul
     let da_addr = get_da_addr(&state, device_mode);
     let payload = fs::read(get_patcher(device_mode))?;
 
-    if state.is_preloader_patched {
-        println!("Successfully booted patched preloader through BROM mode");
-    }
+    run_payload(da_addr, &payload, &mut port)?;
 
-    if !state.is_preloader_patched {
-        run_payload(da_addr, &payload, &mut port)?;
-    }
+    let mut payload = match &state.cli.preloader {
+        Some(p) => fs::read(p)?,
+        None => {
+            log!("No preloader specified, dumping from RAM...");
+            status!(DumpPreloader::new().run_preloader(&mut port))?
+        }
+    };
 
-    if !state.is_preloader_patched {
-        let mut payload = match &state.cli.preloader {
-            Some(p) => fs::read(p)?,
-            None => {
-                log!("No preloader specified, dumping from RAM...");
-                status!(DumpPreloader::new().run_preloader(&mut port))?
+    let asm = Assembler::try_new()?;
+    let disasm = Disassembler::try_new()?;
+
+    println!("Patching preloader...");
+    for i in [
+        Preloader::security(&asm, &disasm),
+        Preloader::hardcoded(&asm, &disasm),
+    ]
+    .iter()
+    .flatten()
+    {
+        let offset = match i.offset(&payload) {
+            Ok(offset) => offset,
+            Err(e) => {
+                println!("{}: {e}", i.on_failure().red());
+                continue;
             }
         };
 
-        let asm = Assembler::try_new()?;
-        let disasm = Disassembler::try_new()?;
+        let replacement = i.replacement(&mut payload)?;
 
-        println!("Patching preloader...");
-        for i in [
-            Preloader::security(&asm, &disasm),
-            Preloader::hardcoded(&asm, &disasm),
-        ]
-        .iter()
-        .flatten()
-        {
-            let offset = match i.offset(&payload) {
-                Ok(offset) => offset,
-                Err(e) => {
-                    println!("{}: {e}", i.on_failure().red());
-                    continue;
-                }
-            };
-
-            let replacement = i.replacement(&mut payload)?;
-
-            if replacement.len() % 2 != 0 {
-                return Err(Error::Custom(
-                    "Replacement is not aligned to 2, please fix da-patcher".into(),
-                ));
-            }
-
-            match Patch::new(
-                state.soc.preloader_addr() + offset as u32,
-                replacement.len() as u32,
-                &replacement,
-            )
-            .run(&mut port)
-            {
-                Ok(_) => println!("{}", i.on_success().green()),
-                Err(e) => println!("{}: {e}", i.on_failure().red()),
-            }
+        if replacement.len() % 2 != 0 {
+            return Err(Error::Custom(
+                "Replacement is not aligned to 2, please fix da-patcher".into(),
+            ));
         }
 
-        log!("Jumping back to usbdl_handler...");
-        status!(Return::new().run(&mut port))?;
-
-        log!("Trying to sync with patched preloader...");
-        status!(handshake(&mut port))?;
-
-        state.is_preloader_patched = true;
+        match Patch::new(
+            state.soc.preloader_addr() + offset as u32,
+            replacement.len() as u32,
+            &replacement,
+        )
+        .run(&mut port)
+        {
+            Ok(_) => println!("{}", i.on_success().green()),
+            Err(e) => println!("{}: {e}", i.on_failure().red()),
+        }
     }
+
+    log!("Jumping back to usbdl_handler...");
+    status!(Return::new().run(&mut port))?;
+
+    log!("Trying to sync with patched preloader...");
+    status!(handshake(&mut port))?;
 
     let mode = state.cli.mode.unwrap_or_default();
 
@@ -496,7 +484,6 @@ fn run(cli: Cli) -> Result<()> {
     let state = State::new(
         SoC::try_from_hwcode(hwcode).ok_or(Error::UnsupportedSoC(hwcode))?,
         cli,
-        false,
     );
     match device_mode {
         DeviceMode::Brom => run_brom(state, port, device_mode),
