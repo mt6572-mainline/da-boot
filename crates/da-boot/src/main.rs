@@ -10,20 +10,17 @@ use bincode::Encode;
 use clap::{Parser, Subcommand, ValueEnum};
 use clap_num::maybe_hex;
 use colored::Colorize;
-use da_parser::parse_da;
 use da_patcher::{Assembler, Disassembler, Patch as _, PatchCollection, preloader::Preloader};
 use da_soc::SoC;
 use derive_ctor::ctor;
 use derive_more::IsVariant;
 use serialport::{SerialPortInfo, SerialPortType, available_ports};
-use sha1::{Digest, Sha1};
 use simpleport::{Port, SimpleRead, SimpleWrite};
 
 use crate::{
     commands::{
         custom_brom::{RunPayload, Sync},
         custom_preloader::{DumpPreloader, Patch, Return},
-        da::{DA1Setup, DA2Ack},
         generic::{GetHwCode, GetTargetConfig},
         preloader::{JumpDA, Read32, SendDA},
     },
@@ -77,9 +74,6 @@ enum Command {
         #[arg(long)]
         lk_mode: Option<LkBootMode>,
     },
-
-    /// Boot preloader patcher and dump preloader with changes (debugging)
-    DumpPreloader,
 }
 
 #[derive(Clone, Default, ValueEnum, IsVariant)]
@@ -399,8 +393,6 @@ fn run_preloader(mut state: State, port: Port, device_mode: DeviceMode) -> Resul
                 })?,
             )
         }
-        // For dumping preloader we need read32 patched
-        Command::DumpPreloader => (true, fs::read(get_patcher(device_mode))?),
     };
 
     // This will run either preloader patcher or actual payload
@@ -519,21 +511,6 @@ fn run_preloader(mut state: State, port: Port, device_mode: DeviceMode) -> Resul
             log!("Jumping to {jump:#x}...");
             status!(JumpDA::new(jump).run(&mut port))?;
         }
-
-        Command::DumpPreloader => {
-            log!("Dumping preloader from ram...");
-            let preloader = status!(
-                Read32::new(state.soc.preloader_addr() as u32, (1 * 1024 * 1024) / 4)
-                    .run_buf(&mut port)
-            )?
-            .into_iter()
-            .map(|u32| u32.to_le_bytes())
-            .flatten()
-            .collect::<Vec<_>>();
-            fs::write("preloader.bin", preloader)?;
-            return Ok(());
-        }
-        _ => unreachable!(),
     }
 
     Ok(())
