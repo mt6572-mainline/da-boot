@@ -12,13 +12,12 @@ use clap_num::maybe_hex;
 use colored::Colorize;
 use da_parser::parse_da;
 use da_patcher::{Assembler, Disassembler, Patch as _, PatchCollection, preloader::Preloader};
-use da_protocol::{Port, SimpleRead, SimpleWrite};
 use da_soc::SoC;
 use derive_ctor::ctor;
 use derive_more::IsVariant;
 use serialport::{SerialPortInfo, SerialPortType, available_ports};
 use sha1::{Digest, Sha1};
-use shared::PRELOADER_BASE;
+use simpleport::{Port, SimpleRead, SimpleWrite};
 
 use crate::{
     commands::{
@@ -42,19 +41,6 @@ type Result<T> = core::result::Result<T, Error>;
 const HANDSHAKE: [u8; 3] = [0x0a, 0x50, 0x05];
 
 const BOOT_ARG_ADDR: u32 = 0x800d0000;
-
-trait DA {
-    fn write_and_check(&mut self, byte: u8, expected: u8) -> Result<bool>;
-}
-
-impl DA for Port {
-    fn write_and_check(&mut self, byte: u8, expected: u8) -> Result<bool> {
-        self.write_all(&[byte])?;
-        let mut buf = [0; 1];
-        self.read_exact(&mut buf)?;
-        Ok(u8::from_be_bytes(buf) == expected)
-    }
-}
 
 #[derive(Clone, ValueEnum, IsVariant)]
 #[clap(rename_all = "kebab_case")]
@@ -90,22 +76,6 @@ enum Command {
         /// LK boot mode
         #[arg(long)]
         lk_mode: Option<LkBootMode>,
-    },
-
-    /// Boot DA
-    BootDA {
-        /// DA file
-        #[arg(short, long)]
-        input: PathBuf,
-        /// Run DA-specific exploit
-        #[arg(short, long)]
-        exploit: Option<Exploit>,
-        /// Exploit payload
-        #[arg(short, long)]
-        payload: Option<PathBuf>,
-        /// Do not patch the DA even if the device is not protected
-        #[arg(long)]
-        quirky_preloader: bool,
     },
 
     /// Boot preloader patcher and dump preloader with changes (debugging)
@@ -264,7 +234,7 @@ fn open_port() -> Result<(DeviceMode, Port)> {
 
 fn crash_to_brom(port: &mut Port) -> Result<()> {
     match Read32::new(0x0, 1).run(port) {
-        Err(Error::DAProtocol(da_protocol::err::Error::Io(_))) => Ok(()),
+        Err(Error::Simpleport(simpleport::err::Error::Io(_))) => Ok(()),
         _ => Err(Error::Custom("Retry".into())),
     }
 }
@@ -280,7 +250,7 @@ fn handshake(port: &mut Port) -> Result<()> {
     }
 
     for byte in HANDSHAKE {
-        port.write_and_check(byte, !byte)?;
+        port.write_u8(byte)?;
     }
 
     /* Clean garbage because we spam with handshake  */
@@ -365,9 +335,11 @@ fn run_brom(mut state: State, mut port: Port, device_mode: DeviceMode) -> Result
         }
     }
 
-    log!("Booting preloader at {PRELOADER_BASE:#x}...");
-    status!(RunPayload::new(PRELOADER_BASE as u32, payload.len() as u32, &payload).run(&mut port))?;
-    println!("Jumping to {PRELOADER_BASE:#x}...");
+    let preloader_base = state.soc.preloader_addr();
+
+    log!("Booting preloader at {preloader_base:#x}...");
+    status!(RunPayload::new(preloader_base, payload.len() as u32, &payload).run(&mut port))?;
+    println!("Jumping to {preloader_base:#x}...");
 
     state.cli.crash = false;
     state.is_preloader_patched = true;
@@ -429,12 +401,6 @@ fn run_preloader(mut state: State, port: Port, device_mode: DeviceMode) -> Resul
         }
         // For dumping preloader we need read32 patched
         Command::DumpPreloader => (true, fs::read(get_patcher(device_mode))?),
-        Command::BootDA {
-            input,
-            quirky_preloader,
-            exploit,
-            payload,
-        } => return run_da(&state, port, input, !quirky_preloader, exploit, payload),
     };
 
     // This will run either preloader patcher or actual payload
@@ -497,7 +463,7 @@ fn run_preloader(mut state: State, port: Port, device_mode: DeviceMode) -> Resul
             }
 
             match Patch::new(
-                (PRELOADER_BASE + offset) as u32,
+                state.soc.preloader_addr() + offset as u32,
                 replacement.len() as u32,
                 &replacement,
             )
@@ -557,7 +523,8 @@ fn run_preloader(mut state: State, port: Port, device_mode: DeviceMode) -> Resul
         Command::DumpPreloader => {
             log!("Dumping preloader from ram...");
             let preloader = status!(
-                Read32::new(PRELOADER_BASE as u32, (1 * 1024 * 1024) / 4).run_buf(&mut port)
+                Read32::new(state.soc.preloader_addr() as u32, (1 * 1024 * 1024) / 4)
+                    .run_buf(&mut port)
             )?
             .into_iter()
             .map(|u32| u32.to_le_bytes())
@@ -576,171 +543,6 @@ fn run_da_exploit(exploit: Exploits<'_>, port: &mut Port) -> Result<()> {
     println!("{} run...", exploit.description());
     exploit.run(port)?;
     println!("Payloads coming soon :P");
-    Ok(())
-}
-
-fn run_da(
-    state: &State,
-    mut port: Port,
-    input: &PathBuf,
-    patch_da: bool,
-    exploit: &Option<Exploit>,
-    payload_path: &Option<PathBuf>,
-) -> Result<()> {
-    let mut da = parse_da(&fs::read(input)?)?
-        .into_iter()
-        .find(|da| da.hw_code == 0x6572)
-        .ok_or(Error::Custom("Invalid DA file".into()))?;
-
-    let (da1, da2) = da.regions.split_at_mut(2);
-
-    println!("\nDA1: {}", da1[1]);
-    println!("\nDA2: {}\n", da2[0]);
-
-    let da1 = &mut da1[1];
-    let da2 = &mut da2[0];
-    let mut da1code = &mut da1.code;
-    let mut da2code = &mut da2.code;
-
-    if patch_da {
-        let asm = Assembler::try_new()?;
-        let disasm = Disassembler::try_new()?;
-        println!("Patching da1...");
-        for i in [
-            // FIXME: add switch to disable hash check or update hash
-            // not sure which one would be better for now
-            //da_patcher::da::DA::security(&asm, &disasm),
-            da_patcher::da::DA::hardcoded(&asm, &disasm),
-        ]
-        .iter()
-        .flatten()
-        {
-            match i.patch(&mut da1code) {
-                Ok(()) => println!("{}", i.on_success().green()),
-                Err(e) => println!("{}: {e}", i.on_failure().red()),
-            }
-        }
-
-        let mut hasher = Sha1::new();
-        hasher.update(&da2code[..da2code.len() - 256]);
-        let hash = hasher.finalize();
-        println!("da2 hash: {hash:#x}");
-
-        let index = (0..da1code.len())
-            .find(|&i| da1code[i..].starts_with(&hash))
-            .ok_or(Error::Custom("da2 hash not found :(".into()))?;
-
-        println!("Patching da2...");
-        for i in [
-            da_patcher::da::DA::security(&asm, &disasm),
-            da_patcher::da::DA::hardcoded(&asm, &disasm),
-        ]
-        .iter()
-        .flatten()
-        {
-            match i.patch(&mut da2code) {
-                Ok(()) => println!("{}", i.on_success().green()),
-                Err(e) => println!("{}: {e}", i.on_failure().red()),
-            }
-        }
-
-        let mut hasher = Sha1::new();
-        hasher.update(&da2code[..da2code.len() - 256]);
-        let replacement = hasher.finalize();
-        println!("patched da2 hash: {replacement:#x}");
-
-        da1code[index..index + 20].clone_from_slice(&replacement);
-    }
-
-    let da_addr = state.soc.da_dram_addr();
-    if state.soc.is_da1_addr_hardcoded_in_preloader() {
-        log!(
-            "Uploading da1 to {da_addr:#x} (ignored, upload address is overwritten by preloader)..."
-        );
-    } else {
-        log!("Uploading da1 to {da_addr:#x}...");
-    }
-
-    status!(
-        SendDA::new(da_addr, da1code.len() as u32, da1.signature_size, &da1code).run(&mut port)
-    )?;
-    log!("Jumping to {da_addr:#x}...");
-    status!(JumpDA::new(da_addr).run(&mut port))?;
-
-    log!("Setting up da1...");
-    let mut da1info = DA1Setup::new();
-    status!(da1info.run(&mut port))?;
-    println!("DA v{}.{}", da1info.major(), da1info.minor());
-
-    if let Some(exploit) = exploit
-        && let Some(path) = payload_path
-    {
-        let payload = fs::read(path)?;
-        if let Some(exploit) = match exploit {
-            Exploit::Croissant2 => Some(Exploits::croissant2(
-                &da1code,
-                &payload,
-                state.soc.da_sram_addr(),
-            )),
-            Exploit::Pumpkin => Some(Exploits::pumpkin(
-                &da1code,
-                &da2code,
-                &payload,
-                state.soc.da_sram_addr(),
-            )),
-            _ => None,
-        } {
-            run_da_exploit(exploit, &mut port)?;
-            return Ok(());
-        }
-    }
-
-    log!("Booting da2...");
-    port.write_u32_be(da2.base)?;
-    port.write_u32_be(da2code.len() as u32)?;
-    port.write_u32_be(0x1000)?;
-    if port.read_u8()? != 0x5a {
-        return Err(Error::Custom("DA2 setup is not accepted".into()));
-    }
-
-    let chunk_size = 0x1000;
-    let chunks = da2code.len() / chunk_size;
-
-    for i in 0..chunks {
-        port.write_all(&da2code[i * chunk_size..(i + 1) * chunk_size])?;
-        if port.read_u8()? != 0x5a {
-            return Err(Error::Custom("DA2 data is not accepted".into()));
-        }
-    }
-
-    if da2code.len() % chunk_size != 0 {
-        port.write_all(&da2code[chunks * chunk_size..])?;
-    }
-
-    status!(DA2Ack::new(0x5a, 0x5a).run(&mut port))?;
-
-    println!("DA2 is up and running");
-
-    if let Some(exploit) = exploit
-        && let Some(path) = payload_path
-    {
-        sleep(Duration::from_millis(1500));
-        port.clear(serialport::ClearBuffer::All)?;
-
-        let payload = fs::read(path)?;
-        if let Some(exploit) = match exploit {
-            Exploit::Croissant => Some(Exploits::croissant(
-                &da2code,
-                &payload,
-                state.soc.da_sram_addr(),
-            )),
-            _ => None,
-        } {
-            run_da_exploit(exploit, &mut port)?;
-            return Ok(());
-        }
-    }
-
     Ok(())
 }
 
