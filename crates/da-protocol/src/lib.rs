@@ -26,7 +26,11 @@ pub enum Message<'a> {
     /// Flush I and D-cache at `addr` with `size` aligned to 64.
     FlushCache { addr: u32, size: u32 },
     /// Jump to `addr`. The `addr` **must** contain **ARM** mode instructions.
-    Jump { addr: u32 },
+    Jump {
+        addr: u32,
+        r1: Option<u32>,
+        r2: Option<u32>,
+    },
     /// Reset the device using watchdog.
     Reset,
 
@@ -130,7 +134,16 @@ impl Display for Message<'_> {
             Self::FlushCache { addr, size } => {
                 write!(f, "Flush cache @ 0x{addr:08x} for 0x{size:x} bytes")
             }
-            Self::Jump { addr } => write!(f, "Jump to 0x{addr:08x}"),
+            Self::Jump { addr, r1, r2 } => {
+                write!(f, "Jump to 0x{addr:08x}")?;
+                if let Some(r1) = r1 {
+                    write!(f, " R1: 0x{r1:08x}")?;
+                }
+                if let Some(r2) = r2 {
+                    write!(f, " R2: 0x{r2:08x}")?;
+                }
+                Ok(())
+            }
             Self::Reset => write!(f, "Reset"),
 
             #[cfg(feature = "preloader")]
