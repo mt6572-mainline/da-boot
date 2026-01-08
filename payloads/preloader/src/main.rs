@@ -129,7 +129,7 @@ pub unsafe extern "C" fn main() -> ! {
         (LK_KERNEL_ADDR as *mut u32).write(MAGIC);
     }
 
-    let buf = [0; 1024];
+    let buf = [0; 2048];
     let mut s = String::<64>::new();
 
     let usb = unsafe { USB::new(transmute(recv_addr | 1), transmute(send_addr | 1)) };
