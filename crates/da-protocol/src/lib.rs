@@ -2,10 +2,10 @@
 
 use core::{borrow::Borrow, fmt::Display};
 
-use simpleport::{SimpleRead, SimpleWrite};
 use derive_ctor::ctor;
 use derive_more::IsVariant;
 use serde::{Deserialize, Serialize};
+use simpleport::{SimpleRead, SimpleWrite};
 
 use crate::err::Error;
 
@@ -60,6 +60,9 @@ pub struct Protocol<T: SimpleRead + SimpleWrite> {
 }
 
 impl<T: SimpleRead + SimpleWrite> Protocol<T> {
+    /// Recommended buffer size for read/write operations, considering preloader stack limitation.
+    pub const RW_BUFFER_SIZE: usize = 2048 - max(size_of::<Message>(), size_of::<Response>());
+
     /// Read data to the `buf` regardless of its' size.
     fn read_data<'a, U: serde::Deserialize<'a>>(&mut self, buf: &'a mut [u8]) -> Result<U> {
         let size = self.io.read_u32_be()?;
@@ -116,12 +119,6 @@ impl<T: SimpleRead + SimpleWrite> Protocol<T> {
         response: U,
     ) -> Result<()> {
         self.write_data(buf, response)
-    }
-
-    /// Recommended buffer size for read/write operations, considering preloader stack limitation
-    #[must_use]
-    pub const fn rw_buffer_size() -> usize {
-        2048 - max(size_of::<Message>(), size_of::<Response>())
     }
 }
 
