@@ -2,27 +2,17 @@ use thiserror::Error as TError;
 
 #[derive(Debug, TError)]
 pub enum Error {
-    /// Invalid magic (MTK_DOWNLOAD_AGENT or 0x22668899 is not matched)
-    #[error("Invalid magic")]
-    InvalidMagic,
-    /// Unexpected data
-    #[error("Invalid struct data")]
-    InvalidHeuristics,
-    /// Invalid DA region count
-    ///
-    /// Raised when DA region count is 0
-    #[error("Invalid DA region count")]
-    InvalidRegionCount,
-    /// Invalid DA code start position
-    ///
-    /// Raised when code offset is less than 0x100 from the DA start
-    #[error("Invalid DA code start")]
-    InvalidRegionStart,
-    /// Invalid DA code size
-    ///
-    /// Raised when code size is less than 0x100
-    #[error("Invalid DA code size")]
-    InvalidCodeSize,
+    /// DA parsing error
+    #[error("DA parsing error: {0}")]
+    DA(#[from] crate::da::err::Error),
+
+    /// LK parsing error
+    #[error("LK parsing error: {0}")]
+    LK(#[from] crate::lk::err::Error),
+
+    /// Unknown preloader type
+    #[error("Unknown preloader type")]
+    UnknownPreloaderType,
 
     /// I/O error
     #[error("I/O error: {0}")]

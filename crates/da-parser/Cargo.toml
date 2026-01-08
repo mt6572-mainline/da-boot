@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [[bin]]
-name = "dump"
-path = "src/dump.rs"
+name = "main"
+path = "src/main.rs"
 
 [dependencies]
 bincode = { workspace = true }
@@ -13,3 +13,5 @@ thiserror = { workspace = true }
 derive-ctor = { workspace = true }
 clap = { workspace = true }
 clap-num = { workspace = true }
+itertools = "0.14.0"
+getset = "0.1.6"
