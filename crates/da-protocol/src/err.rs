@@ -6,7 +6,7 @@ pub enum Error {
     /// postcard crate error
     #[error("postcard error: {0}")]
     Postcard(#[from] postcard::Error),
-    /// `da-port` error
-    #[error("da-port error: {0}")]
-    DAPort(#[from] simpleport::err::Error),
+    /// `simpleport` error
+    #[error("simpleport error: {0}")]
+    Simpleport(#[from] simpleport::err::Error),
 }
