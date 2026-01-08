@@ -165,9 +165,9 @@ pub unsafe extern "C" fn main() -> ! {
                     flush_cache(addr as usize, size as usize);
                     Response::ack()
                 },
-                Message::Jump { addr } => unsafe {
+                Message::Jump { addr, r1, r2 } => unsafe {
                     asm!("dsb; isb");
-                    c_function!(fn() -> (), addr as usize)();
+                    c_function!(fn(u32, u32) -> (), addr as usize)(r1.unwrap_or_default(), r2.unwrap_or_default());
                     Response::nack()
                 },
                 Message::Reset => unsafe {
