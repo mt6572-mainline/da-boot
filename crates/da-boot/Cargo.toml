@@ -15,8 +15,9 @@ derive-ctor = { workspace = true }
 da-boot-macros = { path = "../da-boot-macros" }
 da-parser = { path = "../da-parser" }
 da-patcher = { path = "../da-patcher" }
-da-protocol = { path = "../da-protocol" }
+simpleport = { workspace = true, features = ["std", "serialport"] }
+da-protocol = { path = "../da-protocol", features = ["std", "preloader"] }
 da-soc = { path = "../da-soc" }
-shared = { path = "../../payloads/shared" }
 sha-1 = "0.10.1"
 enum_dispatch = { workspace = true }
+rustyline = "17.0.2"
