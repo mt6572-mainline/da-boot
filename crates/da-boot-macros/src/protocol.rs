@@ -391,7 +391,7 @@ pub fn da_legacy(input: TokenStream) -> TokenStream {
 
             /// Runs the command
             pub fn run(&mut self, port: &mut crate::Port) -> crate::Result<()> {
-                use da_port::{SimpleRead, SimpleWrite};
+                use simpleport::{SimpleRead, SimpleWrite};
                 #command
                 #(#code;)*
 

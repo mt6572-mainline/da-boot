@@ -9,7 +9,7 @@ proc-macro = true
 [dependencies]
 darling = "0.21.3"
 proc-macro2 = "1.0.101"
-quote = "1.0.41"
+quote = "1.0.40"
 syn = "2.0.106"
 derive_more = { workspace = true }
 derive-ctor = { workspace = true }
