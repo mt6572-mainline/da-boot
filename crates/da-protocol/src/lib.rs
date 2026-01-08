@@ -55,19 +55,20 @@ pub enum Response<'a> {
 ///
 /// It's up to host to not overflow the buffer with `Message::Read`, `Message::Write` and `Response::Read`.
 #[derive(ctor)]
-pub struct Protocol<T: SimpleRead + SimpleWrite> {
+pub struct Protocol<T: SimpleRead + SimpleWrite, const N: usize> {
     io: T,
+    buf: [u8; N],
 }
 
-impl<T: SimpleRead + SimpleWrite> Protocol<T> {
+impl<T: SimpleRead + SimpleWrite, const N: usize> Protocol<T, N> {
     /// Recommended buffer size for read/write operations, considering preloader stack limitation.
     pub const RW_BUFFER_SIZE: usize = 2048 - max(size_of::<Message>(), size_of::<Response>());
 
     /// Read data to the `buf` regardless of its' size.
-    fn read_data<'a, U: serde::Deserialize<'a>>(&mut self, buf: &'a mut [u8]) -> Result<U> {
+    fn read_data<'a, U: serde::Deserialize<'a>>(&'a mut self) -> Result<U> {
         let size = self.io.read_u32_be()?;
-        self.io.read(&mut buf[..size as usize])?;
-        let data = postcard::from_bytes(buf)?;
+        self.io.read(&mut self.buf[..size as usize])?;
+        let data = postcard::from_bytes(&self.buf)?;
 
         Ok(data)
     }
@@ -75,12 +76,8 @@ impl<T: SimpleRead + SimpleWrite> Protocol<T> {
     /// Write `data` to the target.
     ///
     /// The `buf` is used for serialization without allocating temporary buffer.
-    fn write_data<'a, U: serde::Serialize + Borrow<U>>(
-        &mut self,
-        buf: &'a mut [u8],
-        data: U,
-    ) -> Result<()> {
-        let bytes = postcard::to_slice(&data, buf)?;
+    fn write_data<'a, U: serde::Serialize + Borrow<U>>(&mut self, data: U) -> Result<()> {
+        let bytes = postcard::to_slice(&data, &mut self.buf)?;
         self.io.write_u32_be(bytes.len() as u32)?;
         self.io.write(&bytes).map_err(|e| e.into())
     }
@@ -88,8 +85,8 @@ impl<T: SimpleRead + SimpleWrite> Protocol<T> {
     /// Receive message
     ///
     /// The message lives as long as the `buf` is valid.
-    pub fn read_message<'a>(&mut self, buf: &'a mut [u8]) -> Result<Message<'a>> {
-        self.read_data(buf)
+    pub fn read_message(&mut self) -> Result<Message<'_>> {
+        self.read_data()
     }
 
     /// Send message
@@ -97,17 +94,16 @@ impl<T: SimpleRead + SimpleWrite> Protocol<T> {
     /// The `buf` is used to store the serialized data.
     pub fn send_message<'a, U: serde::Serialize + Borrow<Message<'a>>>(
         &mut self,
-        buf: &mut [u8],
         message: U,
     ) -> Result<()> {
-        self.write_data(buf, message)
+        self.write_data(message)
     }
 
     /// Receive response
     ///
     /// The response lives as long as the `buf` is valid.
-    pub fn read_response<'a>(&mut self, buf: &'a mut [u8]) -> Result<Response<'a>> {
-        self.read_data(buf)
+    pub fn read_response(&mut self) -> Result<Response<'_>> {
+        self.read_data()
     }
 
     /// Send response
@@ -115,10 +111,9 @@ impl<T: SimpleRead + SimpleWrite> Protocol<T> {
     /// The `buf` is used to store the serialized data.
     pub fn send_response<'a, U: serde::Serialize + Borrow<Response<'a>>>(
         &mut self,
-        buf: &mut [u8],
         response: U,
     ) -> Result<()> {
-        self.write_data(buf, response)
+        self.write_data(response)
     }
 }
 
