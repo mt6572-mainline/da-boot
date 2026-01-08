@@ -38,6 +38,15 @@ pub enum Error {
     /// bincode crate error
     #[error("Bincode encode error: {0}")]
     BincodeEncode(#[from] bincode::error::EncodeError),
+
+    /// rustyline crate error
+    #[error("rustyline crate error: {0}")]
+    Rustyline(#[from] rustyline::error::ReadlineError),
+
+    /// `simpleport` crate error
+    #[error("simpleport error: {0}")]
+    Simpleport(#[from] simpleport::err::Error),
+
     /// Any other error
     #[error("{0}")]
     Custom(#[from] Box<dyn std::error::Error>),
