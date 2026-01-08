@@ -50,32 +50,6 @@ enum Exploit {
     Pumpkin,
 }
 
-#[derive(Clone, IsVariant, Subcommand)]
-enum Command {
-    /// Boot bare-metal payload through send_da and jump_da preloader commands
-    Boot {
-        /// Binaries to upload
-        #[arg(short, long, value_delimiter = ' ', num_args = 1..)]
-        input: Vec<PathBuf>,
-
-        /// Addresses for binaries
-        #[arg(short, long, value_delimiter = ' ', num_args = 1.., value_parser=maybe_hex::<u32>)]
-        upload_address: Vec<u32>,
-
-        /// Final jump address, jumps to DA1 DRAM address if not set
-        #[arg(short, long, value_parser=maybe_hex::<u32>)]
-        jump_address: Option<u32>,
-
-        /// Payload boot mode
-        #[arg(short, long)]
-        mode: Option<Mode>,
-
-        /// LK boot mode
-        #[arg(long)]
-        lk_mode: Option<LkBootMode>,
-    },
-}
-
 #[derive(Clone, Default, ValueEnum, IsVariant)]
 #[clap(rename_all = "kebab_case")]
 enum Mode {
@@ -99,8 +73,25 @@ struct Cli {
     #[arg(short, long)]
     preloader: Option<PathBuf>,
 
-    #[command(subcommand)]
-    command: Command,
+    /// Binaries to upload
+    #[arg(short, long, value_delimiter = ' ', num_args = 1..)]
+    input: Vec<PathBuf>,
+
+    /// Addresses for binaries
+    #[arg(short, long, value_delimiter = ' ', num_args = 1.., value_parser=maybe_hex::<u32>)]
+    upload_address: Vec<u32>,
+
+    /// Final jump address, jumps to DA1 DRAM address if not set
+    #[arg(short, long, value_parser=maybe_hex::<u32>)]
+    jump_address: Option<u32>,
+
+    /// Payload boot mode
+    #[arg(short, long)]
+    mode: Option<Mode>,
+
+    /// LK boot mode
+    #[arg(long)]
+    lk_mode: Option<LkBootMode>,
 }
 
 #[derive(Debug, Clone, Default, Encode, ValueEnum)]
@@ -366,52 +357,10 @@ fn run_preloader(mut state: State, port: Port, device_mode: DeviceMode) -> Resul
     }
 
     let da_addr = get_da_addr(&state, device_mode);
-    let (run_patcher, payload) = match &state.cli.command {
-        Command::Boot {
-            input,
-            upload_address,
-            jump_address,
-            mode,
-            ..
-        } => {
-            // For LK mode we always need patched preloader
-            let patcher_required = mode.as_ref().is_some_and(|m| m.is_lk())
-                // or force option is enabled
-                || state.cli.force
-                // or binaries to upload is more than 1
-                || upload_address.len() > 1
-                // or upload address is not equal to the hardcoded one
-                || upload_address[0] != da_addr
-                // or jump address is not equal to the hardcoded one
-                || jump_address.unwrap_or(da_addr) != da_addr;
-            (
-                patcher_required,
-                fs::read(if patcher_required {
-                    get_patcher(device_mode)
-                } else {
-                    &input[0]
-                })?,
-            )
-        }
-    };
-
-    // This will run either preloader patcher or actual payload
-    if !run_patcher && !state.is_preloader_patched {
-        return Ok(());
-    }
+    let payload = fs::read(get_patcher(device_mode))?;
 
     if state.is_preloader_patched {
         println!("Successfully booted patched preloader through BROM mode");
-    }
-
-    match &state.cli.command {
-        Command::Boot { mode, input, .. }
-            if input.len() > 1 && state.is_preloader_patched == true =>
-        {
-            println!("We still need preloader patcher to boot hook LK");
-            state.is_preloader_patched = false;
-        }
-        _ => (),
     }
 
     if !state.is_preloader_patched {
@@ -475,51 +424,38 @@ fn run_preloader(mut state: State, port: Port, device_mode: DeviceMode) -> Resul
         state.is_preloader_patched = true;
     }
 
-    match state.cli.command {
-        Command::Boot {
-            input,
-            upload_address,
-            jump_address,
-            mode,
-            lk_mode,
-        } => {
-            let mode = mode.unwrap_or_default();
+    let mode = state.cli.mode.unwrap_or_default();
 
-            for (idx, (i, a)) in input.into_iter().zip(upload_address).enumerate() {
-                let mut payload = fs::read(i)?;
-                if mode.is_lk() && idx == 0 {
-                    payload.drain(0..0x200);
-                }
-                log!("Uploading payload to {a:#x}...");
-                status!(SendDA::new(a, payload.len() as u32, 0, &payload).run(&mut port))?;
-            }
-
-            if mode.is_lk() {
-                log!("Preparing boot argument for LK...");
-                let payload = bincode::encode_to_vec(
-                    BootArgument::lk(lk_mode.unwrap_or_default()),
-                    bincode::config::standard()
-                        .with_little_endian()
-                        .with_fixed_int_encoding(),
-                )?;
-                status!(
-                    SendDA::new(BOOT_ARG_ADDR, payload.len() as u32, 0, &payload).run(&mut port)
-                )?;
-            }
-
-            let jump = jump_address.unwrap_or(da_addr);
-            log!("Jumping to {jump:#x}...");
-            status!(JumpDA::new(jump).run(&mut port))?;
+    for (idx, (i, a)) in state
+        .cli
+        .input
+        .into_iter()
+        .zip(state.cli.upload_address)
+        .enumerate()
+    {
+        let mut payload = fs::read(i)?;
+        if mode.is_lk() && idx == 0 {
+            payload.drain(0..0x200);
         }
+        log!("Uploading payload to {a:#x}...");
+        status!(SendDA::new(a, payload.len() as u32, 0, &payload).run(&mut port))?;
     }
 
-    Ok(())
-}
+    if mode.is_lk() {
+        log!("Preparing boot argument for LK...");
+        let payload = bincode::encode_to_vec(
+            BootArgument::lk(state.cli.lk_mode.unwrap_or_default()),
+            bincode::config::standard()
+                .with_little_endian()
+                .with_fixed_int_encoding(),
+        )?;
+        status!(SendDA::new(BOOT_ARG_ADDR, payload.len() as u32, 0, &payload).run(&mut port))?;
+    }
 
-fn run_da_exploit(exploit: Exploits<'_>, port: &mut Port) -> Result<()> {
-    println!("{} run...", exploit.description());
-    exploit.run(port)?;
-    println!("Payloads coming soon :P");
+    let jump = state.cli.jump_address.unwrap_or(da_addr);
+    log!("Jumping to {jump:#x}...");
+    status!(JumpDA::new(jump).run(&mut port))?;
+
     Ok(())
 }
 
@@ -571,17 +507,8 @@ fn run(cli: Cli) -> Result<()> {
 fn main() -> core::result::Result<(), String> {
     let cli = Cli::parse();
 
-    match &cli.command {
-        Command::Boot {
-            input,
-            upload_address,
-            ..
-        } => {
-            assert!(!input.is_empty());
-            assert_eq!(input.len(), upload_address.len());
-        }
-        _ => (),
-    }
+    assert!(!cli.input.is_empty());
+    assert_eq!(cli.input.len(), cli.upload_address.len());
 
     println!("For BROM mode short KCOL0 to the GND or add the crash option and connect the device");
     println!("For preloader mode simply connect the device");
