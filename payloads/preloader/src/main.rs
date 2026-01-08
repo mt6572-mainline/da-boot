@@ -167,7 +167,7 @@ pub unsafe extern "C" fn main() -> ! {
                 },
                 Message::Jump { addr, r1, r2 } => unsafe {
                     asm!("dsb; isb");
-                    c_function!(fn(u32, u32) -> (), addr as usize)(r1.unwrap_or_default(), r2.unwrap_or_default());
+                    c_function!(fn(u32, u32, u32), bldr_jump | 1)(addr, r1.unwrap_or_default(), r2.unwrap_or_default());
                     Response::nack()
                 },
                 Message::Reset => unsafe {
