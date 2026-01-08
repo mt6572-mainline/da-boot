@@ -129,18 +129,18 @@ pub unsafe extern "C" fn main() -> ! {
         (LK_KERNEL_ADDR as *mut u32).write(MAGIC);
     }
 
-    let mut buf = [0; 1024];
+    let buf = [0; 1024];
     let mut s = String::<64>::new();
 
     let usb = unsafe { USB::new(transmute(recv_addr | 1), transmute(send_addr | 1)) };
-    let mut protocol = Protocol::new(usb);
+    let mut protocol = Protocol::new(usb, buf);
 
-    if protocol.send_message(&mut buf, Message::ack()).is_err() {
+    if protocol.send_message(Message::ack()).is_err() {
         uart_println!("Failed to send ack");
         panic!();
     }
 
-    if let Ok(r) = protocol.read_response(&mut buf)
+    if let Ok(r) = protocol.read_response()
         && r.is_ack()
     {
         uart_println!("Ready for commands");
@@ -150,7 +150,7 @@ pub unsafe extern "C" fn main() -> ! {
     }
 
     loop {
-        let response = match protocol.read_message(&mut buf) {
+        let response = match protocol.read_message() {
             Ok(message) => match message {
                 Message::Ack => Response::ack(),
                 Message::Read { addr, size } => unsafe {
@@ -186,7 +186,7 @@ pub unsafe extern "C" fn main() -> ! {
             }
         };
 
-        if let Err(e) = protocol.send_response(&mut buf, response) {
+        if let Err(e) = protocol.send_response(response) {
             uart_println!("Error sending response, giving up");
             panic!();
         }
