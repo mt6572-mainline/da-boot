@@ -40,12 +40,17 @@ pub unsafe fn flush_dcache(start_addr: usize, size: usize) {
 }
 
 pub unsafe fn flush_icache() {
-    unsafe {
-        asm!("mcr p15, 0, r0, c7, c5, 0", options(nomem, nostack));
-        asm!("mcr p15, 0, r0, c7, c5, 6", options(nomem, nostack));
+    let zero: u32 = 0;
 
-        asm!("dsb");
-        asm!("isb");
+    unsafe {
+        // ICIALLU: Invalidate all instruction caches to PoU
+        asm!("mcr p15, 0, {}, c7, c5, 0", in(reg) zero, options(nomem, nostack));
+
+        // BPIALL: Invalidate all branch predictors
+        asm!("mcr p15, 0, {}, c7, c5, 6", in(reg) zero, options(nomem, nostack));
+
+        asm!("dsb", options(nomem, nostack));
+        asm!("isb", options(nomem, nostack));
     }
 }
 
