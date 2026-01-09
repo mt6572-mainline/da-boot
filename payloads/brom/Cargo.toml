@@ -5,3 +5,7 @@ edition = "2024"
 
 [dependencies]
 shared = { path = "../shared" }
+simpleport = { workspace = true }
+da-protocol = { path = "../../crates/da-protocol" }
+interceptor = { path = "../interceptor" }
+derive-ctor = { workspace = true }
