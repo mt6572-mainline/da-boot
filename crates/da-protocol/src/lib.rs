@@ -1,11 +1,12 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
-use core::{borrow::Borrow, fmt::Display};
+use core::borrow::Borrow;
 
 use derive_ctor::ctor;
 use derive_more::IsVariant;
 use serde::{Deserialize, Serialize};
 use simpleport::{SimpleRead, SimpleWrite};
+use ufmt::{uDisplay, uwrite};
 
 use crate::err::Error;
 
@@ -128,54 +129,65 @@ impl<T: SimpleRead + SimpleWrite, const N: usize> Protocol<T, N> {
     }
 }
 
-impl Display for Message<'_> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl uDisplay for Message<'_> {
+    fn fmt<W>(&self, f: &mut ufmt::Formatter<'_, W>) -> core::result::Result<(), W::Error>
+    where
+        W: ufmt::uWrite + ?Sized,
+    {
         match self {
-            Self::Ack => write!(f, "ACK"),
-            Self::Read { addr, size } => write!(f, "Read @ 0x{addr:08x} for 0x{size:x} bytes"),
+            Self::Ack => uwrite!(f, "ACK"),
+            Self::Read { addr, size } => {
+                uwrite!(f, "Read @ 0x{:08x} for 0x{:x} bytes", *addr, *size)
+            }
             Self::Write { addr, data } => {
-                write!(f, "Write @ 0x{addr:08x}: [")?;
+                uwrite!(f, "Write @ 0x{:08x}: [", *addr)?;
                 format_slice(f, data)?;
-                write!(f, "]")
+                uwrite!(f, "]")
             }
             Self::FlushCache { addr, size } => {
-                write!(f, "Flush cache @ 0x{addr:08x} for 0x{size:x} bytes")
+                uwrite!(f, "Flush cache @ 0x{:08x} for 0x{:x} bytes", *addr, *size)
             }
             Self::Jump { addr, r1, r2 } => {
-                write!(f, "Jump to 0x{addr:08x}")?;
+                uwrite!(f, "Jump to 0x{:08x}", *addr)?;
                 if let Some(r1) = r1 {
-                    write!(f, " R1: 0x{r1:08x}")?;
+                    uwrite!(f, " R1: 0x{:08x}", *r1)?;
                 }
                 if let Some(r2) = r2 {
-                    write!(f, " R2: 0x{r2:08x}")?;
+                    uwrite!(f, " R2: 0x{:08x}", *r2)?;
                 }
                 Ok(())
             }
-            Self::Reset => write!(f, "Reset"),
+            Self::Reset => uwrite!(f, "Reset"),
 
-            Self::Return => write!(f, "Jump to usbdl_handler"),
+            Self::Return => uwrite!(f, "Jump to usbdl_handler"),
         }
     }
 }
 
-impl Display for ProtocolError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl uDisplay for ProtocolError {
+    fn fmt<W>(&self, f: &mut ufmt::Formatter<'_, W>) -> core::result::Result<(), W::Error>
+    where
+        W: ufmt::uWrite + ?Sized,
+    {
         match self {
-            Self::NotSupported => write!(f, "Not supported"),
-            Self::Unreachable => write!(f, "Unreachable"),
+            Self::NotSupported => uwrite!(f, "Not supported"),
+            Self::Unreachable => uwrite!(f, "Unreachable"),
         }
     }
 }
 
-impl Display for Response<'_> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl uDisplay for Response<'_> {
+    fn fmt<W>(&self, f: &mut ufmt::Formatter<'_, W>) -> core::result::Result<(), W::Error>
+    where
+        W: ufmt::uWrite + ?Sized,
+    {
         match self {
-            Self::Ack => write!(f, "ACK"),
-            Self::Nack(e) => write!(f, "Not ACK: {e}"),
+            Self::Ack => uwrite!(f, "ACK"),
+            Self::Nack(e) => uwrite!(f, "Not ACK: {}", e),
             Self::Read { data } => {
-                write!(f, "Data: [")?;
+                uwrite!(f, "Data: [")?;
                 format_slice(f, data)?;
-                write!(f, "]")
+                uwrite!(f, "]")
             }
         }
     }
@@ -185,12 +197,15 @@ const fn max(a: usize, b: usize) -> usize {
     if a > b { a } else { b }
 }
 
-fn format_slice(f: &mut core::fmt::Formatter, data: &[u8]) -> core::fmt::Result {
+fn format_slice<W: ufmt::uWrite + ?Sized>(
+    f: &mut ufmt::Formatter<'_, W>,
+    data: &[u8],
+) -> core::result::Result<(), W::Error> {
     for (i, byte) in data.iter().enumerate() {
         if i != 0 {
-            write!(f, ", ")?;
+            uwrite!(f, ", ")?;
         }
-        write!(f, "{:#04x}", byte)?;
+        uwrite!(f, "{:#04x}", *byte)?;
     }
 
     Ok(())
