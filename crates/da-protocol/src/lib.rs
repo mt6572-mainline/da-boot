@@ -38,6 +38,14 @@ pub enum Message<'a> {
     Return,
 }
 
+#[derive(ctor, Serialize, Deserialize, IsVariant)]
+pub enum ProtocolError {
+    /// Command is not supported
+    NotSupported,
+    /// The control flow reached the point where it shouldn't be
+    Unreachable,
+}
+
 /// Protocol responses
 #[derive(ctor, Serialize, Deserialize, IsVariant)]
 #[repr(u8)]
@@ -45,7 +53,7 @@ pub enum Response<'a> {
     /// Operation succeed.
     Ack = 0xDD,
     /// Operation failed.
-    Nack = !0xDD,
+    Nack(ProtocolError),
     /// Read data.
     Read { data: &'a [u8] },
 }
@@ -150,11 +158,20 @@ impl Display for Message<'_> {
     }
 }
 
+impl Display for ProtocolError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::NotSupported => write!(f, "Not supported"),
+            Self::Unreachable => write!(f, "Unreachable"),
+        }
+    }
+}
+
 impl Display for Response<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Ack => write!(f, "ACK"),
-            Self::Nack => write!(f, "Not ACK"),
+            Self::Nack(e) => write!(f, "Not ACK: {e}"),
             Self::Read { data } => {
                 write!(f, "Data: [")?;
                 format_slice(f, data)?;
