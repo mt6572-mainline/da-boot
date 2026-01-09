@@ -34,8 +34,7 @@ pub enum Message<'a> {
     /// Reset the device using watchdog.
     Reset,
 
-    #[cfg(feature = "preloader")]
-    /// Return to `usbdl_handler`.
+    /// Return to `usbdl_handler` in the preloader mode.
     Return,
 }
 
@@ -146,7 +145,6 @@ impl Display for Message<'_> {
             }
             Self::Reset => write!(f, "Reset"),
 
-            #[cfg(feature = "preloader")]
             Self::Return => write!(f, "Jump to usbdl_handler"),
         }
     }
