@@ -290,23 +290,15 @@ fn run_payload(addr: u32, payload: &[u8], port: &mut Port) -> Result<()> {
 fn run_brom(mut state: State, mut port: Port, device_mode: DeviceMode) -> Result<()> {
     assert!(device_mode.is_brom());
 
-    run_payload(
-        get_da_addr(&state, device_mode),
-        &fs::read(get_patcher(device_mode))?,
-        &mut port,
-    )?;
+    run_payload(0x2001000, &fs::read(get_patcher(device_mode))?, &mut port)?;
+
+    let mut protocol = Protocol::new(port, [0; 2048]);
 
     log!("Trying to sync with brom payload...");
-    status!(Sync::new(0x1337).run(&mut port))?;
+    status!(protocol.start())?;
 
     let mut payload = fs::read(state.cli.preloader.clone().ok_or(Error::Custom("Preloader is required in the BROM mode, please specify preloader without header via -p option".into()))?)?;
-    payload.truncate(131 * 1024);
-    let pad = payload.len() % 4;
-    if pad != 0 {
-        for _ in 0..4 - pad {
-            payload.push(0);
-        }
-    }
+    payload.truncate(100 * 1024);
 
     let asm = Assembler::try_new()?;
     let disasm = Disassembler::try_new()?;
@@ -328,12 +320,21 @@ fn run_brom(mut state: State, mut port: Port, device_mode: DeviceMode) -> Result
     let preloader_base = state.soc.preloader_addr();
 
     log!("Booting preloader at {preloader_base:#x}...");
-    status!(RunPayload::new(preloader_base, payload.len() as u32, &payload).run(&mut port))?;
-    println!("Jumping to {preloader_base:#x}...");
+    status!(protocol.upload(preloader_base, &payload))?;
+
+    log!("Jumping to {preloader_base:#x}...");
+    status!(protocol.send_message(Message::jump(
+        preloader_base,
+        Some(BOOT_ARG_ADDR),
+        Some(250)
+    )))?;
+    if protocol.read_response().is_ok_and(|r| r.is_nack()) {
+        return Err(Error::Custom("Jump failed".into()));
+    }
 
     state.cli.crash = false;
 
-    drop(port);
+    drop(protocol);
     sleep(Duration::from_millis(100));
     println!();
 
@@ -402,7 +403,7 @@ fn run_preloader(state: State, port: Port, device_mode: DeviceMode) -> Result<()
 
     let jump = state.cli.jump_address.unwrap_or(da_addr);
     log!("Jumping to {jump:#x}...");
-    status!(protocol.send_message(Message::jump(jump)))?;
+    status!(protocol.send_message(Message::jump(jump, Some(BOOT_ARG_ADDR), Some(250))))?;
     if protocol.read_response().is_ok_and(|r| r.is_nack()) {
         Err(Error::Custom("Jump failed".into()))
     } else {
