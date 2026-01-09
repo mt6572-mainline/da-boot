@@ -1,9 +1,12 @@
 #![no_std]
 #![allow(static_mut_refs)]
+
+#[cfg(feature = "alloc")]
 extern crate alloc;
 
 use core::{alloc::Layout, mem::MaybeUninit, ptr};
 
+#[cfg(feature = "alloc")]
 use alloc::vec::Vec;
 use shared::flush_cache;
 
@@ -17,8 +20,10 @@ pub mod err;
 
 pub type Result<T> = core::result::Result<T, Error>;
 
+#[cfg(feature = "alloc")]
 struct Static<T>(MaybeUninit<T>);
 
+#[cfg(feature = "alloc")]
 impl<T> Static<T> {
     unsafe fn init(&mut self, t: T) {
         self.0.write(t);
@@ -93,16 +98,19 @@ macro_rules! hook {
     };
 }
 
+#[cfg(feature = "alloc")]
 struct Trampoline {
     address: u32,
     jump_address: u32,
 }
 
+#[cfg(feature = "alloc")]
 struct InterceptorPool {
     address: Vec<u32>,
     trampoline: Vec<Trampoline>,
 }
 
+#[cfg(feature = "alloc")]
 static mut POOL: Static<InterceptorPool> = Static(MaybeUninit::zeroed());
 
 pub struct Interceptor;
@@ -119,6 +127,7 @@ impl Interceptor {
         }
     }
 
+    #[cfg(feature = "alloc")]
     pub unsafe fn init() {
         unsafe {
             POOL.init(InterceptorPool {
@@ -135,13 +144,16 @@ impl Interceptor {
 
         let mut target_ptr = Self::unmask_thumb2(target) as *mut u8;
 
+        #[cfg(feature = "alloc")]
         let pool = unsafe { POOL.get_mut() };
 
         let size = if target as u32 % 4 != 0 { 10 } else { 8 };
 
+        #[cfg(feature = "alloc")]
         // worst case
         let layout = unsafe { Layout::from_size_align_unchecked(64, 4) };
 
+        #[cfg(feature = "alloc")]
         unsafe {
             let code = alloc::alloc::alloc(layout);
             let mut n_target = 0;
@@ -192,6 +204,7 @@ impl Interceptor {
             });
         };
 
+        #[cfg(feature = "alloc")]
         pool.address.push(target_ptr as u32);
 
         unsafe {
@@ -207,6 +220,7 @@ impl Interceptor {
         Ok(())
     }
 
+    #[cfg(feature = "alloc")]
     pub unsafe fn revert(target: usize) -> Result<()> {
         if target & 1 == 0 {
             return Err(Error::UnsupportedMode);
@@ -234,6 +248,7 @@ impl Interceptor {
         Ok(())
     }
 
+    #[cfg(feature = "alloc")]
     pub unsafe fn original(target: usize) -> Option<usize> {
         let pool = unsafe { POOL.get() };
         let target = Self::unmask_thumb2(target);
