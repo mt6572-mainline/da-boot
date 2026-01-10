@@ -1,0 +1,10 @@
+[build]
+target = "armv7a-none-eabi.json"
+
+[target.'cfg(target_arch = "arm")']
+rustflags = [
+  "-C", "relocation-model=pic",
+  "-C", "link-arg=-pie",
+  "-C", "link-arg=-Bstatic",
+  "-C", "link-arg=--no-dynamic-linker",
+]
