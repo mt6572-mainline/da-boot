@@ -70,16 +70,6 @@ impl SimpleWrite for USB {
     }
 }
 
-struct Adapter<'a, 'b>(&'a mut core::fmt::Formatter<'b>);
-
-impl<'a, 'b> uWrite for Adapter<'a, 'b> {
-    type Error = core::fmt::Error;
-
-    fn write_str(&mut self, s: &str) -> core::result::Result<(), Self::Error> {
-        core::fmt::Write::write_str(self.0, s)
-    }
-}
-
 #[panic_handler]
 fn panic_handler(info: &PanicInfo) -> ! {
     uart_println!("Panic :(");
