@@ -252,8 +252,8 @@ fn handshake(port: &mut Port) -> Result<()> {
 
 fn get_patcher<'a>(mode: DeviceMode) -> &'a Path {
     match mode {
-        DeviceMode::Brom => Path::new("target/armv7a-none-eabi/release/brom"),
-        DeviceMode::Preloader => Path::new("target/armv7a-none-eabi/release/preloader"),
+        DeviceMode::Brom => Path::new("target/armv7a-none-eabi/release/rpc"),
+        DeviceMode::Preloader => Path::new("target/armv7a-none-eabi/release/rpc"),
     }
 }
 
