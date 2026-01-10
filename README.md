@@ -9,12 +9,9 @@ Boot U-Boot (or any other bare-metal binary) as DA on MediaTek MT6572
 
 # Usage
 ## Booting generic bare-metal payload
-### Prepare payloads
+### Prepare payload
 ```
-cd payloads/preloader
-./build.sh
-cd ../..
-cd payloads/brom
+cd payloads/rpc
 ./build.sh
 cd ../..
 ```
