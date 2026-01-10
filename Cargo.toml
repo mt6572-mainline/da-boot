@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/da-boot", "crates/da-boot-macros", "crates/da-parser", "crates/da-patcher", "crates/da-protocol", "crates/da-soc", "payloads/brom", "payloads/bump", "payloads/interceptor", "payloads/preloader", "payloads/shared"]
+members = ["crates/da-boot", "crates/da-boot-macros", "crates/da-parser", "crates/da-patcher", "crates/da-protocol", "crates/da-soc", "payloads/bump", "payloads/da1", "payloads/interceptor", "payloads/rpc", "payloads/shared"]
 
 [workspace.dependencies]
 derive_more = { version = "2.0.1", features = ["is_variant"] }
@@ -9,10 +9,15 @@ thiserror = "2.0.16"
 derive-ctor = "1.0.6"
 clap = { version = "4.5.48", features = ["derive"] }
 clap-num = "1.2.0"
-serialport = "4.7.3"
+serialport = "4.8.1"
 enum_dispatch = "0.3.13"
+simpleport = { git = "https://github.com/rva3/simpleport" }
+ufmt = "0.2.0"
 
 [profile.release]
 opt-level = 3
 strip = true
 lto = "thin"
+
+[profile.release.package.rpc]
+opt-level = "z"
