@@ -966,6 +966,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f27ae1dd37df86211c42e150270f82743308803d90a6f6e6651cd730d5e1732f"
 
 [[package]]
+name = "da-alternatives"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.106",
+]
+
+[[package]]
 name = "da-boot"
 version = "0.1.0"
 dependencies = [
@@ -3120,6 +3129,7 @@ name = "rpc"
 version = "0.1.0"
 dependencies = [
  "bump",
+ "da-alternatives",
  "da-protocol",
  "derive-ctor",
  "heapless 0.9.2",
