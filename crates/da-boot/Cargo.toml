@@ -16,7 +16,7 @@ da-boot-macros = { path = "../da-boot-macros" }
 da-parser = { path = "../da-parser" }
 da-patcher = { path = "../da-patcher" }
 simpleport = { workspace = true, features = ["std", "serialport"] }
-da-protocol = { path = "../da-protocol", features = ["std", "preloader"] }
+da-protocol = { path = "../da-protocol", features = ["std"] }
 da-soc = { path = "../da-soc" }
 sha-1 = "0.10.1"
 enum_dispatch = { workspace = true }
