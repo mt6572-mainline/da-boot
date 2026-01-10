@@ -3,4 +3,8 @@ name = "shared"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+ufmt = ["dep:ufmt"]
+
 [dependencies]
+ufmt = { workspace = true, optional = true }
