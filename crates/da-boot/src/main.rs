@@ -20,8 +20,6 @@ use simpleport::{Port, SimpleRead, SimpleWrite};
 
 use crate::{
     commands::{
-        custom_brom::{RunPayload, Sync},
-        custom_preloader::{DumpPreloader, Patch, Return},
         generic::{GetHwCode, GetTargetConfig},
         preloader::{JumpDA, Read32, SendDA},
     },
