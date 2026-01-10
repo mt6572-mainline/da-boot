@@ -13,4 +13,3 @@ simpleport = { workspace = true }
 thiserror = { version = "2.0.16", default-features = false }
 derive-ctor = { workspace = true }
 derive_more = { version = "2.0.1", default-features = false, features = ["is_variant"] }
-ufmt = { workspace = true }
