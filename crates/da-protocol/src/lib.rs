@@ -38,12 +38,37 @@ pub enum Message<'a> {
     Return,
 }
 
+#[cfg(not(feature = "std"))]
+impl Message<'_> {
+    pub fn debug(&self) -> u8 {
+        match self {
+            Self::Ack => b'A',
+            Self::Read { .. } => b'R',
+            Self::Write { .. } => b'W',
+            Self::FlushCache { .. } => b'F',
+            Self::Jump { .. } => b'J',
+            Self::Reset => b'W',
+            Self::Return => b'P',
+        }
+    }
+}
+
 #[derive(ctor, Serialize, Deserialize, IsVariant)]
 pub enum ProtocolError {
     /// Command is not supported
     NotSupported,
     /// The control flow reached the point where it shouldn't be
     Unreachable,
+}
+
+#[cfg(not(feature = "std"))]
+impl ProtocolError {
+    pub fn debug(&self) -> u8 {
+        match self {
+            Self::NotSupported => b'N',
+            Self::Unreachable => b'U',
+        }
+    }
 }
 
 /// Protocol responses
@@ -56,6 +81,17 @@ pub enum Response<'a> {
     Nack(ProtocolError),
     /// Read data.
     Read { data: &'a [u8] },
+}
+
+#[cfg(not(feature = "std"))]
+impl Response<'_> {
+    pub fn debug(&self) -> u8 {
+        match self {
+            Self::Ack => b'A',
+            Self::Nack(_) => b'N',
+            Self::Read { .. } => b'R',
+        }
+    }
 }
 
 /// `da-boot` protocol to communicate between host and device
