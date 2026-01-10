@@ -4,10 +4,12 @@
 use bump::BumpAllocator;
 use core::{
     arch::{asm, global_asm},
+    cell::UnsafeCell,
     mem::transmute,
     panic::PanicInfo,
     ptr,
 };
+use da_alternatives::alternatives;
 use da_protocol::{Message, Protocol, ProtocolError, Response};
 use derive_ctor::ctor;
 use interceptor::c_function;
@@ -29,20 +31,6 @@ const DLCOMPORT_PTR: usize = 0x2000828;
 static ALLOCATOR: BumpAllocator = BumpAllocator::new(0xa0000000);
 
 global_asm!(include_str!("start.S"));
-
-macro_rules! status {
-    ($desc:literal, $code:expr) => {{
-        uart_print!($desc);
-        uart_print!(" is ");
-        if let Some(addr) = $code {
-            uart_println!("found");
-            addr
-        } else {
-            uart_println!("NOT found");
-            panic!();
-        }
-    }};
-}
 
 macro_rules! uart_printfln {
     ($fmt:literal $(, $($arg:tt)+)?) => {{
@@ -70,6 +58,29 @@ impl SimpleWrite for USB {
     }
 }
 
+struct Cell<T> {
+    value: UnsafeCell<Option<T>>,
+}
+
+impl<T> Cell<T> {
+    pub const fn new() -> Self {
+        Self { value: UnsafeCell::new(None) }
+    }
+
+    #[inline]
+    pub fn get_or_init(&self, f: impl FnOnce() -> T) -> &T {
+        unsafe {
+            let v = &mut *self.value.get();
+            if v.is_none() {
+                *v = Some(f());
+            }
+            v.as_ref().expect("???")
+        }
+    }
+}
+
+unsafe impl<T> Sync for Cell<T> {}
+
 #[panic_handler]
 fn panic_handler(info: &PanicInfo) -> ! {
     uart_println!("Panic :(");
@@ -86,6 +97,13 @@ fn panic_handler(info: &PanicInfo) -> ! {
     loop {}
 }
 
+#[alternatives("bldr_jump: {:#x}")]
+fn bldr_jump() -> usize {
+    search!(PRELOADER_BASE, PRELOADER_END, 0xe92d, 0x46f8, 0x4691, 0x4604)
+        .or_else(|| search!(PRELOADER_BASE, PRELOADER_END, 0xe92d, 0x46f8, 0x4607, 0x4692))
+        .expect("bldr_jump not found")
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn main() -> ! {
     Serial::enable_fifo();
@@ -95,8 +113,8 @@ pub unsafe extern "C" fn main() -> ! {
     let usb = if is_bootrom() {
         unsafe { USB::new(transmute(USBDL_GET_DATA | 1), transmute(USBDL_PUT_DATA | 1)) }
     } else {
-        let send_addr = status!("usb_send", { search!(PRELOADER_BASE, PRELOADER_END, 0xb508, 0x4603, 0x2200, 0x4608, 0x4619) });
-        let recv_addr = status!("usb_recv", { search!(PRELOADER_BASE, PRELOADER_END, 0xe92d, 0x42f0, 0x4605, 0x2000) });
+        let send_addr = search!(PRELOADER_BASE, PRELOADER_END, 0xb508, 0x4603, 0x2200, 0x4608, 0x4619).expect("usb_send not found");
+        let recv_addr = search!(PRELOADER_BASE, PRELOADER_END, 0xe92d, 0x42f0, 0x4605, 0x2000).expect("usb_recv not found");
 
         unsafe { USB::new(transmute(recv_addr | 1), transmute(send_addr | 1)) }
     };
@@ -142,7 +160,7 @@ pub unsafe extern "C" fn main() -> ! {
                             asm!("dsb; isb");
                             c_function!(fn(u32, u32), addr as usize)(r0.unwrap_or_default(), r1.unwrap_or_default());
                         } else {
-                            let bldr_jump = status!("bldr_jump", { search!(PRELOADER_BASE, PRELOADER_END, 0xe92d, 0x46f8, 0x4691, 0x4604) });
+                            let bldr_jump = bldr_jump();
                             asm!("dsb; isb");
                             c_function!(fn(u32, u32, u32), bldr_jump | 1)(addr, r0.unwrap_or_default(), r1.unwrap_or_default());
                         }
@@ -158,7 +176,7 @@ pub unsafe extern "C" fn main() -> ! {
                         if is_bootrom() {
                             Response::nack(ProtocolError::not_supported())
                         } else {
-                            let usbdl_handler_addr = status!("usbdl_handler", { search!(PRELOADER_BASE, PRELOADER_END, 0xe92d, 0x4ef0, 0x460e) });
+                            let usbdl_handler_addr = search!(PRELOADER_BASE, PRELOADER_END, 0xe92d, 0x4ef0, 0x460e).expect("usbdl_handler not found");
 
                             asm!("dsb; isb");
                             c_function!(fn(u32, u32) -> (), usbdl_handler_addr | 1)(ptr::read_volatile(DLCOMPORT_PTR as *const u32), 300);
