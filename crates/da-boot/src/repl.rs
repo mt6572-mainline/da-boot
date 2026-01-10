@@ -47,9 +47,9 @@ enum Command {
         #[arg(value_parser=maybe_hex::<u32>)]
         addr: u32,
         #[arg(value_parser=maybe_hex::<u32>)]
-        r1: Option<u32>,
+        r0: Option<u32>,
         #[arg(value_parser=maybe_hex::<u32>)]
-        r2: Option<u32>,
+        r1: Option<u32>,
     },
     /// Reset the device using watchdog.
     Reset,
@@ -75,10 +75,10 @@ impl Command {
                 addr: *addr,
                 size: *size,
             },
-            Self::Jump { addr, r1, r2 } => Message::Jump {
+            Self::Jump { addr, r0, r1 } => Message::Jump {
                 addr: *addr,
+                r0: *r0,
                 r1: *r1,
-                r2: *r2,
             },
             Self::Reset => Message::Reset,
             Self::Return => Message::Return,

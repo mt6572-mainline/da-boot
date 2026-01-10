@@ -28,8 +28,8 @@ pub enum Message<'a> {
     /// Jump to `addr`. The `addr` **must** contain **ARM** mode instructions.
     Jump {
         addr: u32,
+        r0: Option<u32>,
         r1: Option<u32>,
-        r2: Option<u32>,
     },
     /// Reset the device using watchdog.
     Reset,
@@ -177,13 +177,13 @@ impl Display for Message<'_> {
             Self::FlushCache { addr, size } => {
                 write!(f, "Flush cache @ 0x{addr:08x} for 0x{size:x} bytes")
             }
-            Self::Jump { addr, r1, r2 } => {
+            Self::Jump { addr, r0, r1 } => {
                 write!(f, "Jump to 0x{addr:08x}")?;
+                if let Some(r0) = r0 {
+                    write!(f, " R0: 0x{r0:08x}")?;
+                }
                 if let Some(r1) = r1 {
                     write!(f, " R1: 0x{r1:08x}")?;
-                }
-                if let Some(r2) = r2 {
-                    write!(f, " R2: 0x{r2:08x}")?;
                 }
                 Ok(())
             }

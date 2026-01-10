@@ -136,15 +136,15 @@ pub unsafe extern "C" fn main() -> ! {
                         flush_cache(addr as usize, size as usize);
                         Response::ack()
                     },
-                    Message::Jump { addr, r1, r2 } => unsafe {
+                    Message::Jump { addr, r0, r1 } => unsafe {
                         Serial::disable_fifo();
                         if is_bootrom() {
                             asm!("dsb; isb");
-                            c_function!(fn(u32, u32), addr as usize)(r1.unwrap_or_default(), r2.unwrap_or_default());
+                            c_function!(fn(u32, u32), addr as usize)(r0.unwrap_or_default(), r1.unwrap_or_default());
                         } else {
                             let bldr_jump = status!("bldr_jump", { search!(PRELOADER_BASE, PRELOADER_END, 0xe92d, 0x46f8, 0x4691, 0x4604) });
                             asm!("dsb; isb");
-                            c_function!(fn(u32, u32, u32), bldr_jump | 1)(addr, r1.unwrap_or_default(), r2.unwrap_or_default());
+                            c_function!(fn(u32, u32, u32), bldr_jump | 1)(addr, r0.unwrap_or_default(), r1.unwrap_or_default());
                         }
                         Response::nack(ProtocolError::unreachable())
                     },
