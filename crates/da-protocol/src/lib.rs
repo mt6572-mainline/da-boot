@@ -1,12 +1,12 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
-use core::{borrow::Borrow, fmt::Display};
+use core::borrow::Borrow;
 
 use derive_ctor::ctor;
 use derive_more::IsVariant;
 use serde::{Deserialize, Serialize};
 use simpleport::{SimpleRead, SimpleWrite};
-use ufmt::{uDisplay, uWrite, uwrite};
+use ufmt::{uDisplay, uwrite};
 
 use crate::err::Error;
 
@@ -190,42 +190,6 @@ impl uDisplay for Response<'_> {
                 uwrite!(f, "]")
             }
         }
-    }
-}
-
-#[cfg(feature = "std")]
-struct Adapter<'a, 'b>(&'a mut core::fmt::Formatter<'b>);
-
-#[cfg(feature = "std")]
-impl<'a, 'b> uWrite for Adapter<'a, 'b> {
-    type Error = core::fmt::Error;
-
-    fn write_str(&mut self, s: &str) -> core::result::Result<(), Self::Error> {
-        core::fmt::Write::write_str(self.0, s)
-    }
-}
-
-#[cfg(feature = "std")]
-impl Display for Message<'_> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let mut adapter = Adapter(f);
-        uwrite!(&mut adapter, "{}", self)
-    }
-}
-
-#[cfg(feature = "std")]
-impl Display for ProtocolError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let mut adapter = Adapter(f);
-        uwrite!(&mut adapter, "{}", self)
-    }
-}
-
-#[cfg(feature = "std")]
-impl Display for Response<'_> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let mut adapter = Adapter(f);
-        uwrite!(&mut adapter, "{}", self)
     }
 }
 
