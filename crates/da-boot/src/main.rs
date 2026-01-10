@@ -44,6 +44,8 @@ const HANDSHAKE: [u8; 3] = [0x0a, 0x50, 0x05];
 
 const BOOT_ARG_ADDR: u32 = 0x800d0000;
 
+const PAYLOAD_NAME: &str = "target/armv7a-none-eabi/release/rpc";
+
 #[derive(Clone, ValueEnum, IsVariant)]
 #[clap(rename_all = "kebab_case")]
 enum Exploit {
@@ -250,13 +252,6 @@ fn handshake(port: &mut Port) -> Result<()> {
     Ok(())
 }
 
-fn get_patcher<'a>(mode: DeviceMode) -> &'a Path {
-    match mode {
-        DeviceMode::Brom => Path::new("target/armv7a-none-eabi/release/rpc"),
-        DeviceMode::Preloader => Path::new("target/armv7a-none-eabi/release/rpc"),
-    }
-}
-
 fn get_da_addr(state: &State, mode: DeviceMode) -> u32 {
     match mode {
         DeviceMode::Brom => state.soc.da_sram_addr(),
@@ -290,7 +285,7 @@ fn run_payload(addr: u32, payload: &[u8], port: &mut Port) -> Result<()> {
 fn run_brom(mut state: State, mut port: Port, device_mode: DeviceMode) -> Result<()> {
     assert!(device_mode.is_brom());
 
-    run_payload(0x2001000, &fs::read(get_patcher(device_mode))?, &mut port)?;
+    run_payload(0x2001000, &fs::read(PAYLOAD_NAME)?, &mut port)?;
 
     let mut protocol = Protocol::new(port, [0; 2048]);
 
@@ -362,7 +357,7 @@ fn run_preloader(state: State, port: Port, device_mode: DeviceMode) -> Result<()
     }
 
     let da_addr = get_da_addr(&state, device_mode);
-    let payload = fs::read(get_patcher(device_mode))?;
+    let payload = fs::read(PAYLOAD_NAME)?;
 
     run_payload(da_addr, &payload, &mut port)?;
 
