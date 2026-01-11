@@ -33,6 +33,8 @@ pub enum Message<'a> {
     },
     /// Reset the device using watchdog.
     Reset,
+    /// Setup LK hooks for booting boot.img / raw_binary using `boot_linux`
+    LKHook,
 
     /// Return to `usbdl_handler` in the preloader mode.
     Return,
@@ -48,6 +50,7 @@ impl Message<'_> {
             Self::FlushCache { .. } => b'F',
             Self::Jump { .. } => b'J',
             Self::Reset => b'W',
+            Self::LKHook => b'H',
             Self::Return => b'P',
         }
     }
@@ -188,7 +191,7 @@ impl Display for Message<'_> {
                 Ok(())
             }
             Self::Reset => write!(f, "Reset"),
-
+            Self::LKHook => write!(f, "Hook LK"),
             Self::Return => write!(f, "Jump to usbdl_handler"),
         }
     }
