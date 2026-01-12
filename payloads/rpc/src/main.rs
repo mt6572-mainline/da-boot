@@ -128,13 +128,12 @@ pub unsafe extern "C" fn main() -> ! {
                             c_function!(fn(u32, u32), addr as usize)(r0.unwrap_or_default(), r1.unwrap_or_default());
                             Response::nack(ProtocolError::Unreachable)
                         } else {
-                            match get_bldr_jump() {
-                                Some(bldr_jump) => {
-                                    asm!("dsb; isb");
-                                    c_function!(fn(u32, u32, u32), bldr_jump | 1)(addr, r0.unwrap_or_default(), r1.unwrap_or_default());
-                                    Response::nack(ProtocolError::Unreachable)
-                                }
-                                None => Response::nack(ProtocolError::NotFound(NotFoundError::BldrJump)),
+                            if let Some(bldr_jump) = get_bldr_jump() {
+                                asm!("dsb; isb");
+                                c_function!(fn(u32, u32, u32), bldr_jump | 1)(addr, r0.unwrap_or_default(), r1.unwrap_or_default());
+                                Response::nack(ProtocolError::Unreachable)
+                            } else {
+                                Response::nack(ProtocolError::NotFound(NotFoundError::BldrJump))
                             }
                         }
                     },
@@ -150,14 +149,14 @@ pub unsafe extern "C" fn main() -> ! {
                         uart_println!("Initializing interceptor");
                         Interceptor::init();
 
-                        match search!(LK_BASE, LK_END, 0xe92d, 0x4ff0, 0x4699, 0x4b60, 0xb08d).or_else(|| search!(LK_BASE, LK_END, 0xe92d, 0x4ff0, 0x4699, 0x4b61, 0xb089, 0x4690))
+                        if let Some(mt_part_generic_read) =
+                            search!(LK_BASE, LK_END, 0xe92d, 0x4ff0, 0x4699, 0x4b60, 0xb08d).or_else(|| search!(LK_BASE, LK_END, 0xe92d, 0x4ff0, 0x4699, 0x4b61, 0xb089, 0x4690))
                         {
-                            Some(mt_part_generic_read) => {
-                                hooks::hooks::mt_part_generic_read::replace(mt_part_generic_read | 1);
-                                uart_println!("replaced mt_part_generic_read");
-                                Response::ack()
-                            }
-                            None => Response::nack(ProtocolError::NotFound(NotFoundError::MtPartGenericRead)),
+                            hooks::hooks::mt_part_generic_read::replace(mt_part_generic_read | 1);
+                            uart_println!("replaced mt_part_generic_read");
+                            Response::ack()
+                        } else {
+                            Response::nack(ProtocolError::NotFound(NotFoundError::MtPartGenericRead))
                         }
                     },
                     Message::Return => unsafe {
@@ -165,13 +164,12 @@ pub unsafe extern "C" fn main() -> ! {
                         if is_bootrom() {
                             Response::nack(ProtocolError::NotSupported)
                         } else {
-                            match search!(PRELOADER_BASE, PRELOADER_END, 0xe92d, 0x4ef0, 0x460e) {
-                                Some(usbdl_handler_addr) => {
-                                    asm!("dsb; isb");
-                                    c_function!(fn(u32, u32) -> (), usbdl_handler_addr | 1)(ptr::read_volatile(DLCOMPORT_PTR as *const u32), 300);
-                                    Response::nack(ProtocolError::Unreachable)
-                                }
-                                None => Response::nack(ProtocolError::NotFound(NotFoundError::UsbDlHandler)),
+                            if let Some(usbdl_handler_addr) = search!(PRELOADER_BASE, PRELOADER_END, 0xe92d, 0x4ef0, 0x460e) {
+                                asm!("dsb; isb");
+                                c_function!(fn(u32, u32) -> (), usbdl_handler_addr | 1)(ptr::read_volatile(DLCOMPORT_PTR as *const u32), 300);
+                                Response::nack(ProtocolError::Unreachable)
+                            } else {
+                                Response::nack(ProtocolError::NotFound(NotFoundError::UsbDlHandler))
                             }
                         }
                     },
