@@ -1,15 +1,10 @@
-use std::{
-    fs,
-    io::{Write, stdout},
-    path::{Path, PathBuf},
-    thread::sleep,
-    time::Duration,
-};
+use std::{fs, io::Write, path::PathBuf, thread::sleep, time::Duration};
 
 use bincode::Encode;
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Parser, ValueEnum};
 use clap_num::maybe_hex;
 use colored::Colorize;
+use da_parser::{parse_lk, preloader_header_size};
 use da_patcher::{Assembler, Disassembler, Patch as _, PatchCollection, preloader::Preloader};
 use da_protocol::{Message, Protocol};
 use da_soc::SoC;
@@ -42,7 +37,10 @@ const HANDSHAKE: [u8; 3] = [0x0a, 0x50, 0x05];
 
 const BOOT_ARG_ADDR: u32 = 0x800d0000;
 
-const PAYLOAD_NAME: &str = "target/armv7a-none-eabi/release/rpc";
+#[cfg(not(feature = "static"))]
+const PAYLOAD_NAME: &str = "target/armv7a-none-eabi/nostd/rpc";
+#[cfg(feature = "static")]
+const PAYLOAD: &[u8] = include_bytes!("../../../target/armv7a-none-eabi/nostd/rpc");
 
 #[derive(Clone, ValueEnum, IsVariant)]
 #[clap(rename_all = "kebab_case")]
@@ -283,14 +281,35 @@ fn run_payload(addr: u32, payload: &[u8], port: &mut Port) -> Result<()> {
 fn run_brom(mut state: State, mut port: Port, device_mode: DeviceMode) -> Result<()> {
     assert!(device_mode.is_brom());
 
-    run_payload(0x2001000, &fs::read(PAYLOAD_NAME)?, &mut port)?;
+    run_payload(
+        0x2001000,
+        #[cfg(feature = "static")]
+        PAYLOAD,
+        #[cfg(not(feature = "static"))]
+        &fs::read(PAYLOAD_NAME)?,
+        &mut port,
+    )?;
 
     let mut protocol = Protocol::new(port, [0; 2048]);
 
     log!("Trying to sync with brom payload...");
     status!(protocol.start())?;
 
-    let mut payload = fs::read(state.cli.preloader.clone().ok_or(Error::Custom("Preloader is required in the BROM mode, please specify preloader without header via -p option".into()))?)?;
+    let mut payload = if let Some(ref preloader) = state.cli.preloader {
+        let mut payload = fs::read(preloader)?;
+        let header = preloader_header_size(&payload).unwrap_or_else(|_| {
+            eprintln!("Preloader header detection failed, assuming raw binary");
+            0
+        });
+
+        payload.drain(0..header);
+        payload
+    } else {
+        return Err(Error::Custom(
+            "Preloader is required in the BROM mode, please specify preloader without header via -p option".into(),
+        ));
+    };
+
     payload.truncate(100 * 1024);
 
     let asm = Assembler::try_new()?;
@@ -316,11 +335,7 @@ fn run_brom(mut state: State, mut port: Port, device_mode: DeviceMode) -> Result
     status!(protocol.upload(preloader_base, &payload))?;
 
     log!("Jumping to {preloader_base:#x}...");
-    status!(protocol.send_message(Message::jump(
-        preloader_base,
-        Some(BOOT_ARG_ADDR),
-        Some(250)
-    )))?;
+    status!(protocol.send_message(Message::jump(preloader_base, None, None)))?;
     if protocol.read_response().is_ok_and(|r| r.is_nack()) {
         return Err(Error::Custom("Jump failed".into()));
     }
@@ -355,28 +370,51 @@ fn run_preloader(state: State, port: Port, device_mode: DeviceMode) -> Result<()
     }
 
     let da_addr = get_da_addr(&state, device_mode);
-    let payload = fs::read(PAYLOAD_NAME)?;
 
-    run_payload(da_addr, &payload, &mut port)?;
+    run_payload(
+        da_addr,
+        #[cfg(feature = "static")]
+        PAYLOAD,
+        #[cfg(not(feature = "static"))]
+        &fs::read(PAYLOAD_NAME)?,
+        &mut port,
+    )?;
 
     let mut protocol = Protocol::new(port, [0; 2048]);
     protocol.start()?;
 
     let mode = state.cli.mode.unwrap_or_default();
-
-    for (idx, (i, a)) in state
+    let payloads = state
         .cli
         .input
         .into_iter()
-        .zip(state.cli.upload_address)
+        .map(|i| fs::read(i).map_err(|e| e.into()))
+        .collect::<Result<Vec<_>>>()?;
+
+    for (idx, (payload, a)) in payloads
+        .iter()
+        .zip(state.cli.upload_address.iter())
         .enumerate()
     {
-        let mut payload = fs::read(i)?;
         if mode.is_lk() && idx == 0 {
-            payload.drain(0..0x200);
+            let lk = parse_lk(&payload);
+            let code = match lk {
+                Ok(ref lk) => {
+                    println!("\n{lk}");
+                    lk.code()
+                }
+                _ => {
+                    eprintln!("LK header detection failed, assuming raw binary");
+                    &payload
+                }
+            };
+
+            log!("Uploading LK to {a:#x}...");
+            status!(protocol.upload(*a, code))?;
+        } else {
+            log!("Uploading payload to {a:#x}...");
+            status!(protocol.upload(*a, &payload))?;
         }
-        log!("Uploading payload to {a:#x}...");
-        status!(protocol.upload(a, &payload))?;
     }
 
     match mode {
@@ -390,6 +428,14 @@ fn run_preloader(state: State, port: Port, device_mode: DeviceMode) -> Result<()
                     .with_fixed_int_encoding(),
             )?;
             status!(protocol.upload(BOOT_ARG_ADDR, &payload))?;
+
+            if state.cli.upload_address.len() > 1 {
+                log!("Setting up LK hooks...");
+                protocol.send_message(Message::lk_hook())?;
+                if !status!(protocol.read_response())?.is_ack() {
+                    return Err(Error::Custom("Error on enabling LK hooks".into()));
+                }
+            }
         }
         Mode::REPL => return run_repl(protocol),
     }
