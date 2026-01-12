@@ -11,5 +11,4 @@ bump = { path = "../bump" }
 simpleport = { workspace = true }
 da-protocol = { path = "../../crates/da-protocol" }
 derive-ctor = { workspace = true }
-da-alternatives = { path = "../../crates/da-alternatives" }
 ufmt = { workspace = true }

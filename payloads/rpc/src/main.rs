@@ -9,15 +9,14 @@ use core::{
     panic::PanicInfo,
     ptr,
 };
-use da_alternatives::alternatives;
-use da_protocol::{Message, Protocol, ProtocolError, Response};
+use da_protocol::{Message, Property, Protocol, ProtocolError, Response};
 use derive_ctor::ctor;
 use interceptor::{Interceptor, c_function};
 use shared::{LK_BASE, PRELOADER_BASE, Serial, flush_cache, search, search_pattern, uart_print, uart_println};
 use simpleport::{SimpleRead, SimpleWrite};
 use ufmt::uwrite;
 
-use crate::setup::is_bootrom;
+use crate::{hooks::BOOT_IMG, setup::is_bootrom};
 
 mod hooks;
 mod setup;
@@ -101,21 +100,6 @@ fn panic_handler(info: &PanicInfo) -> ! {
     loop {}
 }
 
-#[alternatives("boot_linux_from_storage: {:#x}")]
-fn get_boot_linux_from_storage() -> usize {
-    search!(LK_BASE, LK_END, 0xe92d, 0x41f0, 0x2000, 0xB082)
-        .or_else(|| search!(LK_BASE, LK_END, 0xe92d, 0x41f0, 0x2000, 0xf8df))
-        .expect("boot_linux_from_storage not found")
-}
-
-#[alternatives("boot_linux: {:#x}")]
-fn get_boot_linux() -> usize {
-    search!(LK_BASE, LK_END, 0xe92d, 0x4ff0, 0x2401, 0x460e, 0xf2c5)
-        .or_else(|| search!(LK_BASE, LK_END, 0xe92d, 0x4ff0, 0x460e, 0xb085))
-        .expect("boot_linux not found")
-}
-
-#[alternatives]
 fn get_bldr_jump() -> usize {
     search!(PRELOADER_BASE, PRELOADER_END, 0xe92d, 0x46f8, 0x4691, 0x4604)
         .or_else(|| search!(PRELOADER_BASE, PRELOADER_END, 0xe92d, 0x46f8, 0x4607, 0x4692))
@@ -166,6 +150,7 @@ pub unsafe extern "C" fn main() -> ! {
                     },
                     Message::Write { addr, data } => unsafe {
                         ptr::copy_nonoverlapping(data.as_ptr(), addr as _, data.len());
+                        asm!("dsb; isb");
                         Response::ack()
                     },
                     Message::FlushCache { addr, size } => unsafe {
@@ -178,13 +163,13 @@ pub unsafe extern "C" fn main() -> ! {
                             asm!("dsb; isb");
                             c_function!(fn(u32, u32), addr as usize)(r0.unwrap_or_default(), r1.unwrap_or_default());
                         } else {
-                            let bldr_jump = get_bldr_jump();
-                            uart_printfln!("bldr_jump: {:#x}", bldr_jump);
                             asm!("dsb; isb");
-                            c_function!(fn(u32, u32, u32), bldr_jump | 1)(addr, r0.unwrap_or_default(), r1.unwrap_or_default());
+                            c_function!(fn(u32, u32, u32), get_bldr_jump() | 1)(addr, r0.unwrap_or_default(), r1.unwrap_or_default());
                         }
-                        uart_println!("not jumped?");
                         Response::nack(ProtocolError::unreachable())
+                    },
+                    Message::GetProperty(property) => match property {
+                        Property::BootImgAddress => Response::value(BOOT_IMG),
                     },
                     Message::Reset => unsafe {
                         Serial::disable_fifo();
@@ -194,8 +179,12 @@ pub unsafe extern "C" fn main() -> ! {
                     Message::LKHook => unsafe {
                         uart_println!("Initializing interceptor");
                         Interceptor::init();
-                        hooks::hooks::bldr_jump::replace(get_bldr_jump() | 1);
-                        uart_println!("replaced bldr_jump");
+
+                        let mt_part_generic_read = search!(LK_BASE, LK_END, 0xe92d, 0x4ff0, 0x4699, 0x4b60, 0xb08d)
+                            .or_else(|| search!(LK_BASE, LK_END, 0xe92d, 0x4ff0, 0x4699, 0x4b61, 0xb089, 0x4690))
+                            .expect("mt_part_generic_read not found");
+                        hooks::hooks::mt_part_generic_read::replace(mt_part_generic_read | 1);
+                        uart_println!("replaced mt_part_generic_read");
                         Response::ack()
                     },
                     Message::Return => unsafe {
@@ -207,7 +196,6 @@ pub unsafe extern "C" fn main() -> ! {
 
                             asm!("dsb; isb");
                             c_function!(fn(u32, u32) -> (), usbdl_handler_addr | 1)(ptr::read_volatile(DLCOMPORT_PTR as *const u32), 300);
-                            uart_println!("not jumped?");
                             Response::nack(ProtocolError::unreachable())
                         }
                     },
