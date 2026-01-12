@@ -150,7 +150,6 @@ pub unsafe extern "C" fn main() -> ! {
                     },
                     Message::Write { addr, data } => unsafe {
                         ptr::copy_nonoverlapping(data.as_ptr(), addr as _, data.len());
-                        asm!("dsb; isb");
                         Response::ack()
                     },
                     Message::FlushCache { addr, size } => unsafe {
