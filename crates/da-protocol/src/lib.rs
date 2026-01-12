@@ -25,8 +25,6 @@ pub enum Message<'a> {
     Write { addr: u32, data: &'a [u8] },
     /// Flush I and D-cache at `addr` with `size` aligned to 64.
     FlushCache { addr: u32, size: u32 },
-    /// Perform crc32 at `addr` for `size` bytes
-    Crc32 { addr: u32, size: u32 },
     /// Jump to `addr`. The `addr` **must** contain **ARM** mode instructions.
     Jump {
         addr: u32,
@@ -50,7 +48,6 @@ impl Message<'_> {
             Self::Read { .. } => b'R',
             Self::Write { .. } => b'W',
             Self::FlushCache { .. } => b'F',
-            Self::Crc32 { .. } => b'C',
             Self::Jump { .. } => b'J',
             Self::Reset => b'W',
             Self::LKHook => b'H',
@@ -87,8 +84,6 @@ pub enum Response<'a> {
     Nack(ProtocolError),
     /// Read data.
     Read { data: &'a [u8] },
-    /// Crc32 data.
-    Crc32 { data: u32 },
 }
 
 #[cfg(not(feature = "std"))]
@@ -98,7 +93,6 @@ impl Response<'_> {
             Self::Ack => b'A',
             Self::Nack(_) => b'N',
             Self::Read { .. } => b'R',
-            Self::Crc32 { .. } => b'C',
         }
     }
 }
@@ -186,9 +180,6 @@ impl Display for Message<'_> {
             Self::FlushCache { addr, size } => {
                 write!(f, "Flush cache @ 0x{addr:08x} for 0x{size:x} bytes")
             }
-            Self::Crc32 { addr, size } => {
-                write!(f, "CRC32 @ 0x{addr:08x} for 0x{size:x} bytes")
-            }
             Self::Jump { addr, r0, r1 } => {
                 write!(f, "Jump to 0x{addr:08x}")?;
                 if let Some(r0) = r0 {
@@ -225,7 +216,6 @@ impl Display for Response<'_> {
                 format_slice(f, data)?;
                 write!(f, "]")
             }
-            Self::Crc32 { data } => write!(f, "CRC32: {:#x}", data),
         }
     }
 }
