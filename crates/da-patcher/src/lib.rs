@@ -11,7 +11,7 @@ use crate::{
     da::{DAPatches, hash::Hash, uart_port::UartPort},
     err::Error,
     preloader::{
-        PreloaderPatches, da_argument::DABootArgument, daa::DAA, jump_da::JumpDA,
+        PreloaderPatches, da_argument::DABootArgument, jump_da::JumpDA,
         sec_region_check::SecRegionCheck, send_da::SendDA,
     },
     slice::{
