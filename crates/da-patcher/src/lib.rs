@@ -10,10 +10,7 @@ use regex::Regex;
 use crate::{
     da::{DAPatches, hash::Hash, uart_port::UartPort},
     err::Error,
-    preloader::{
-        PreloaderPatches, da_argument::DABootArgument, jump_da::JumpDA,
-        sec_region_check::SecRegionCheck, send_da::SendDA,
-    },
+    preloader::{PreloaderPatches, sec_region_check::SecRegionCheck},
     slice::{
         fuzzy::{fuzzy_search_thumb2, generic_reg_matcher},
         search,

@@ -1,17 +1,8 @@
-use crate::{
-    PatchCollection,
-    preloader::{
-        da_argument::DABootArgument, jump_da::JumpDA, sec_region_check::SecRegionCheck,
-        send_da::SendDA,
-    },
-};
+use crate::{PatchCollection, preloader::sec_region_check::SecRegionCheck};
 use da_boot_macros::PatchEnum;
 use enum_dispatch::enum_dispatch;
 
-pub mod da_argument;
-pub mod jump_da;
 pub mod sec_region_check;
-pub mod send_da;
 
 /// Preloader patches
 #[enum_dispatch(Patch)]
@@ -19,12 +10,6 @@ pub mod send_da;
 pub enum PreloaderPatches<'a> {
     /// `sec_region_check` function patch
     SecRegionCheck(SecRegionCheck<'a>),
-    /// `send_da` command patch
-    SendDA(SendDA<'a>),
-    /// `jump_da` command patch
-    JumpDA(JumpDA<'a>),
-    /// `jump_da` boot argument address patch
-    DABootArgument(DABootArgument<'a>),
 }
 
 impl PreloaderPatches<'_> {
@@ -32,9 +17,6 @@ impl PreloaderPatches<'_> {
     pub const fn name(&self) -> &'static str {
         match self {
             Self::SecRegionCheck(_) => "sec_region_check",
-            Self::SendDA(_) => "send_da",
-            Self::JumpDA(_) => "jump_da",
-            Self::DABootArgument(_) => "jump_da boot argument",
         }
     }
 }
@@ -49,13 +31,9 @@ impl<'a> PatchCollection<'a, PreloaderPatches<'a>> for Preloader {
     }
 
     fn hardcoded(
-        assembler: &'a crate::Assembler,
-        disassembler: &'a crate::Disassembler,
+        _assembler: &'a crate::Assembler,
+        _disassembler: &'a crate::Disassembler,
     ) -> Vec<PreloaderPatches<'a>> {
-        vec![
-            PreloaderPatches::da_boot_argument(assembler, disassembler),
-            PreloaderPatches::jump_da(assembler, disassembler),
-            PreloaderPatches::send_da(assembler, disassembler),
-        ]
+        vec![]
     }
 }
