@@ -13,7 +13,7 @@ pub mod err;
 
 pub type Result<T> = core::result::Result<T, Error>;
 
-#[derive(ctor, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub enum Property {
     /// `boot.img` payload address.
     BootImgAddress,
@@ -65,14 +65,14 @@ impl Message<'_> {
     }
 }
 
-#[derive(ctor, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub enum NotFoundError {
     BldrJump,
     MtPartGenericRead,
     UsbDlHandler,
 }
 
-#[derive(ctor, Serialize, Deserialize, IsVariant)]
+#[derive(Serialize, Deserialize, IsVariant)]
 pub enum ProtocolError {
     /// Command is not supported
     NotSupported,
