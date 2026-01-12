@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/da-alternatives","crates/da-boot", "crates/da-boot-macros", "crates/da-parser", "crates/da-patcher", "crates/da-protocol", "crates/da-soc", "payloads/bump", "payloads/da1", "payloads/interceptor", "payloads/rpc", "payloads/shared"]
+members = ["crates/da-boot", "crates/da-boot-macros", "crates/da-parser", "crates/da-patcher", "crates/da-protocol", "crates/da-soc", "payloads/bump", "payloads/da1", "payloads/interceptor", "payloads/rpc", "payloads/shared"]
 
 [workspace.dependencies]
 derive_more = { version = "2.0.1", features = ["is_variant"] }
