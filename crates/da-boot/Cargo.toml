@@ -3,6 +3,9 @@ name = "da-boot"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+static = []
+
 [dependencies]
 bincode = { workspace = true }
 clap = { workspace = true }
