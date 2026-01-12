@@ -40,8 +40,8 @@ startup:
     beq .L_stack_sram
 
 .L_stack_dram:
-    movw sp, #:lower16:0x90000000
-    movt sp, #:upper16:0x90000000
+    movw sp, #:lower16:0x8ffffff8
+    movt sp, #:upper16:0x8ffffff8
     b .L_jump_main
 
 .L_stack_sram:

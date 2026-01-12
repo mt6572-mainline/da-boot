@@ -28,7 +28,7 @@ const DLCOMPORT_PTR: usize = 0x2000828;
 const LK_END: usize = LK_BASE + 0x100000;
 
 #[global_allocator]
-static ALLOCATOR: BumpAllocator = BumpAllocator::new(0xa0000000);
+static ALLOCATOR: BumpAllocator = BumpAllocator::new(0x90000000);
 
 global_asm!(include_str!("start.S"));
 
