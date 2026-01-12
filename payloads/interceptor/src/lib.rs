@@ -52,7 +52,7 @@ macro_rules! c_function {
 #[macro_export]
 macro_rules! hook {
     (
-        fn $name:ident($($arg:ident: $argty:ty),*) $(-> $ret:ty)? $body:block
+        fn $name:ident($ctx_name:ident: $ctxty:ty) $(-> $ret:ty)? $body:block
     ) => {
         pub mod $name {
             use super::*;
@@ -63,15 +63,19 @@ macro_rules! hook {
             #[unsafe(naked)]
             pub(super) unsafe extern "C" fn thunk() {
                 core::arch::naked_asm!(
-                    "push {{r4-r11, lr}}",
+                    "push {{r0-r3}}",
+                    "push {{r4-r11, r12, lr}}",
+                    "mov r0, sp",
                     "bl {}",
-                    "pop {{r4-r11, lr}}",
+                    "pop {{r4-r11, r12, lr}}",
+                    "pop {{r0-r3}}",
                     "bx lr",
                     sym body
                 );
             }
 
-            pub(super) unsafe extern "C" fn body($($arg: $argty),*) $(-> $ret)? {
+            pub(super) unsafe extern "C" fn body(ctx: &mut interceptor::InvocationContext) $(-> $ret)? {
+                let $ctx_name = ctx;
                 $body
             }
 
@@ -96,6 +100,31 @@ macro_rules! hook {
             }
         }
     };
+}
+
+#[repr(C)]
+pub struct InvocationContext {
+    pub r4: u32,
+    pub r5: u32,
+    pub r6: u32,
+    pub r7: u32,
+    pub r8: u32,
+    pub r9: u32,
+    pub r10: u32,
+    pub r11: u32,
+    pub r12: u32,
+    pub lr: u32,
+
+    pub r0: u32,
+    pub r1: u32,
+    pub r2: u32,
+    pub r3: u32,
+}
+
+impl InvocationContext {
+    pub unsafe fn sp(&self) -> *const u32 {
+        unsafe { (self as *const _ as *const u8).add(size_of::<Self>()) as *const u32 }
+    }
 }
 
 #[cfg(feature = "alloc")]
