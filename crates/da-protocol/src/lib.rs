@@ -65,10 +65,19 @@ impl Message<'_> {
     }
 }
 
+#[derive(ctor, Serialize, Deserialize)]
+pub enum NotFoundError {
+    BldrJump,
+    MtPartGenericRead,
+    UsbDlHandler,
+}
+
 #[derive(ctor, Serialize, Deserialize, IsVariant)]
 pub enum ProtocolError {
     /// Command is not supported
     NotSupported,
+    /// Didn't find any occurences of the match
+    NotFound(NotFoundError),
     /// The control flow reached the point where it shouldn't be
     Unreachable,
 }
@@ -78,6 +87,7 @@ impl ProtocolError {
     pub fn debug(&self) -> u8 {
         match self {
             Self::NotSupported => b'N',
+            Self::NotFound(_) => b'F',
             Self::Unreachable => b'U',
         }
     }
@@ -218,10 +228,21 @@ impl Display for Message<'_> {
     }
 }
 
+impl Display for NotFoundError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::BldrJump => write!(f, "bldr_jump"),
+            Self::MtPartGenericRead => write!(f, "mt_part_generic_read"),
+            Self::UsbDlHandler => write!(f, "usbdl_handler"),
+        }
+    }
+}
+
 impl Display for ProtocolError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::NotSupported => write!(f, "Not supported"),
+            Self::NotFound(error) => write!(f, "Not found: {error}"),
             Self::Unreachable => write!(f, "Unreachable"),
         }
     }
