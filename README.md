@@ -63,3 +63,9 @@ Strip 0xb00 bytes (preloader header) and run `cargo r --release -p da-patcher --
 
 ### DA
 Run `cargo r --release -p da-patcher -- -i /path/to/da1_or_da2.bin -o da1_or_da2.bin --ty da`.
+
+### Full command examples
+Boot `preloader.bin`, then `lk.bin` in FASTBOOT mode:
+```
+cargo r --release -p da-boot -- -c -p preloader.bin boot -i lk.bin -u 0x80020000 -j 0x80020000 -m lk --lk-mode fastboot
+```
