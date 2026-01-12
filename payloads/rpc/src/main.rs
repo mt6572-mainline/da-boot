@@ -151,15 +151,15 @@ pub unsafe extern "C" fn main() -> ! {
                         if is_bootrom() {
                             asm!("dsb; isb");
                             c_function!(fn(u32, u32), addr as usize)(r0.unwrap_or_default(), r1.unwrap_or_default());
-                            Response::nack(ProtocolError::unreachable())
+                            Response::nack(ProtocolError::Unreachable)
                         } else {
                             match get_bldr_jump() {
                                 Some(bldr_jump) => {
                                     asm!("dsb; isb");
                                     c_function!(fn(u32, u32, u32), bldr_jump | 1)(addr, r0.unwrap_or_default(), r1.unwrap_or_default());
-                                    Response::nack(ProtocolError::unreachable())
+                                    Response::nack(ProtocolError::Unreachable)
                                 }
-                                None => Response::nack(ProtocolError::not_found(NotFoundError::BldrJump)),
+                                None => Response::nack(ProtocolError::NotFound(NotFoundError::BldrJump)),
                             }
                         }
                     },
@@ -182,21 +182,21 @@ pub unsafe extern "C" fn main() -> ! {
                                 uart_println!("replaced mt_part_generic_read");
                                 Response::ack()
                             }
-                            None => Response::nack(ProtocolError::not_found(NotFoundError::mt_part_generic_read())),
+                            None => Response::nack(ProtocolError::NotFound(NotFoundError::MtPartGenericRead)),
                         }
                     },
                     Message::Return => unsafe {
                         Serial::disable_fifo();
                         if is_bootrom() {
-                            Response::nack(ProtocolError::not_supported())
+                            Response::nack(ProtocolError::NotSupported)
                         } else {
                             match search!(PRELOADER_BASE, PRELOADER_END, 0xe92d, 0x4ef0, 0x460e) {
                                 Some(usbdl_handler_addr) => {
                                     asm!("dsb; isb");
                                     c_function!(fn(u32, u32) -> (), usbdl_handler_addr | 1)(ptr::read_volatile(DLCOMPORT_PTR as *const u32), 300);
-                                    Response::nack(ProtocolError::unreachable())
+                                    Response::nack(ProtocolError::Unreachable)
                                 }
-                                None => Response::nack(ProtocolError::not_found(NotFoundError::UsbDlHandler)),
+                                None => Response::nack(ProtocolError::NotFound(NotFoundError::UsbDlHandler)),
                             }
                         }
                     },
@@ -204,7 +204,7 @@ pub unsafe extern "C" fn main() -> ! {
             }
             Err(e) => {
                 uart_println!("Error reading message");
-                Response::nack(ProtocolError::unreachable())
+                Response::nack(ProtocolError::Unreachable)
             }
         };
 
