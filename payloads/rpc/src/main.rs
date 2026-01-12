@@ -9,7 +9,7 @@ use core::{
     panic::PanicInfo,
     ptr,
 };
-use da_protocol::{Message, Property, Protocol, ProtocolError, Response};
+use da_protocol::{Message, NotFoundError, Property, Protocol, ProtocolError, Response};
 use derive_ctor::ctor;
 use interceptor::{Interceptor, c_function};
 use shared::{LK_BASE, PRELOADER_BASE, Serial, flush_cache, search, search_pattern, uart_print, uart_println};
@@ -88,22 +88,12 @@ unsafe impl<T> Sync for Cell<T> {}
 fn panic_handler(info: &PanicInfo) -> ! {
     uart_println!("Panic :(");
 
-    if let Some(message) = info.message().as_str() {
-        uart_printfln!("Message: {}", message);
-    }
-
-    if let Some(location) = info.location() {
-        uart_printfln!("{}: {}", location.file(), location.line());
-    }
-
     Serial::disable_fifo();
     loop {}
 }
 
-fn get_bldr_jump() -> usize {
-    search!(PRELOADER_BASE, PRELOADER_END, 0xe92d, 0x46f8, 0x4691, 0x4604)
-        .or_else(|| search!(PRELOADER_BASE, PRELOADER_END, 0xe92d, 0x46f8, 0x4607, 0x4692))
-        .expect("bldr_jump not found")
+fn get_bldr_jump() -> Option<usize> {
+    search!(PRELOADER_BASE, PRELOADER_END, 0xe92d, 0x46f8, 0x4691, 0x4604).or_else(|| search!(PRELOADER_BASE, PRELOADER_END, 0xe92d, 0x46f8, 0x4607, 0x4692))
 }
 
 #[unsafe(no_mangle)]
@@ -161,11 +151,17 @@ pub unsafe extern "C" fn main() -> ! {
                         if is_bootrom() {
                             asm!("dsb; isb");
                             c_function!(fn(u32, u32), addr as usize)(r0.unwrap_or_default(), r1.unwrap_or_default());
+                            Response::nack(ProtocolError::unreachable())
                         } else {
-                            asm!("dsb; isb");
-                            c_function!(fn(u32, u32, u32), get_bldr_jump() | 1)(addr, r0.unwrap_or_default(), r1.unwrap_or_default());
+                            match get_bldr_jump() {
+                                Some(bldr_jump) => {
+                                    asm!("dsb; isb");
+                                    c_function!(fn(u32, u32, u32), bldr_jump | 1)(addr, r0.unwrap_or_default(), r1.unwrap_or_default());
+                                    Response::nack(ProtocolError::unreachable())
+                                }
+                                None => Response::nack(ProtocolError::not_found(NotFoundError::BldrJump)),
+                            }
                         }
-                        Response::nack(ProtocolError::unreachable())
                     },
                     Message::GetProperty(property) => match property {
                         Property::BootImgAddress => Response::value(BOOT_IMG),
@@ -179,23 +175,29 @@ pub unsafe extern "C" fn main() -> ! {
                         uart_println!("Initializing interceptor");
                         Interceptor::init();
 
-                        let mt_part_generic_read = search!(LK_BASE, LK_END, 0xe92d, 0x4ff0, 0x4699, 0x4b60, 0xb08d)
-                            .or_else(|| search!(LK_BASE, LK_END, 0xe92d, 0x4ff0, 0x4699, 0x4b61, 0xb089, 0x4690))
-                            .expect("mt_part_generic_read not found");
-                        hooks::hooks::mt_part_generic_read::replace(mt_part_generic_read | 1);
-                        uart_println!("replaced mt_part_generic_read");
-                        Response::ack()
+                        match search!(LK_BASE, LK_END, 0xe92d, 0x4ff0, 0x4699, 0x4b60, 0xb08d).or_else(|| search!(LK_BASE, LK_END, 0xe92d, 0x4ff0, 0x4699, 0x4b61, 0xb089, 0x4690))
+                        {
+                            Some(mt_part_generic_read) => {
+                                hooks::hooks::mt_part_generic_read::replace(mt_part_generic_read | 1);
+                                uart_println!("replaced mt_part_generic_read");
+                                Response::ack()
+                            }
+                            None => Response::nack(ProtocolError::not_found(NotFoundError::mt_part_generic_read())),
+                        }
                     },
                     Message::Return => unsafe {
                         Serial::disable_fifo();
                         if is_bootrom() {
                             Response::nack(ProtocolError::not_supported())
                         } else {
-                            let usbdl_handler_addr = search!(PRELOADER_BASE, PRELOADER_END, 0xe92d, 0x4ef0, 0x460e).expect("usbdl_handler not found");
-
-                            asm!("dsb; isb");
-                            c_function!(fn(u32, u32) -> (), usbdl_handler_addr | 1)(ptr::read_volatile(DLCOMPORT_PTR as *const u32), 300);
-                            Response::nack(ProtocolError::unreachable())
+                            match search!(PRELOADER_BASE, PRELOADER_END, 0xe92d, 0x4ef0, 0x460e) {
+                                Some(usbdl_handler_addr) => {
+                                    asm!("dsb; isb");
+                                    c_function!(fn(u32, u32) -> (), usbdl_handler_addr | 1)(ptr::read_volatile(DLCOMPORT_PTR as *const u32), 300);
+                                    Response::nack(ProtocolError::unreachable())
+                                }
+                                None => Response::nack(ProtocolError::not_found(NotFoundError::UsbDlHandler)),
+                            }
                         }
                     },
                 }
