@@ -4,7 +4,6 @@
 use bump::BumpAllocator;
 use core::{
     arch::{asm, global_asm},
-    cell::UnsafeCell,
     mem::transmute,
     panic::PanicInfo,
     ptr,
@@ -14,7 +13,6 @@ use derive_ctor::ctor;
 use interceptor::{Interceptor, c_function};
 use shared::{LK_BASE, PRELOADER_BASE, Serial, flush_cache, search, search_pattern, uart_print, uart_println};
 use simpleport::{SimpleRead, SimpleWrite};
-use ufmt::uwrite;
 
 use crate::{hooks::BOOT_IMG, setup::is_bootrom};
 
@@ -37,7 +35,7 @@ global_asm!(include_str!("start.S"));
 #[macro_export]
 macro_rules! uart_printfln {
     ($fmt:literal $(, $($arg:tt)+)?) => {{
-        uwrite!(&mut Serial, $fmt $(, $($arg)+)?);
+        ufmt::uwrite!(&mut Serial, $fmt $(, $($arg)+)?);
         uart_println!("");
     }};
 }
@@ -60,29 +58,6 @@ impl SimpleWrite for USB {
         Ok(())
     }
 }
-
-struct Cell<T> {
-    value: UnsafeCell<Option<T>>,
-}
-
-impl<T> Cell<T> {
-    pub const fn new() -> Self {
-        Self { value: UnsafeCell::new(None) }
-    }
-
-    #[inline]
-    pub fn get_or_init(&self, f: impl FnOnce() -> T) -> &T {
-        unsafe {
-            let v = &mut *self.value.get();
-            if v.is_none() {
-                *v = Some(f());
-            }
-            v.as_ref().expect("???")
-        }
-    }
-}
-
-unsafe impl<T> Sync for Cell<T> {}
 
 #[panic_handler]
 fn panic_handler(info: &PanicInfo) -> ! {

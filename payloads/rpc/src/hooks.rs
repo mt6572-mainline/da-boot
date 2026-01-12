@@ -1,7 +1,7 @@
 use crate::LK_END;
 use core::ptr;
 use interceptor::{Interceptor, c_function, hook};
-use shared::{LK_BASE, Serial, flush_cache, search, search_pattern, uart_print, uart_println};
+use shared::{LK_BASE, Serial, flush_cache, search, uart_print, uart_println};
 
 pub const BOOT_IMG: u32 = 0x83000000;
 
@@ -20,7 +20,7 @@ pub mod hooks {
 
             if !part.is_null() {
                 let addr = unsafe { (*part.add(3) as u64) << 9 };
-                    let delta = (src - addr) as usize;
+                let delta = (src - addr) as usize;
 
                 if delta <= 0x1000 {
                     uart_println!("replacing boot.img");
