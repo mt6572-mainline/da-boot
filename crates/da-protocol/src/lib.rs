@@ -13,6 +13,12 @@ pub mod err;
 
 pub type Result<T> = core::result::Result<T, Error>;
 
+#[derive(ctor, Serialize, Deserialize)]
+pub enum Property {
+    /// `boot.img` payload address.
+    BootImgAddress,
+}
+
 /// Protocol messages
 #[derive(ctor, Serialize, Deserialize, IsVariant)]
 #[repr(u8)]
@@ -31,6 +37,8 @@ pub enum Message<'a> {
         r0: Option<u32>,
         r1: Option<u32>,
     },
+    /// Read property from client.
+    GetProperty(Property),
     /// Reset the device using watchdog.
     Reset,
     /// Setup LK hooks for booting boot.img / raw_binary using `boot_linux`
@@ -49,6 +57,7 @@ impl Message<'_> {
             Self::Write { .. } => b'W',
             Self::FlushCache { .. } => b'F',
             Self::Jump { .. } => b'J',
+            Self::GetProperty(_) => b'G',
             Self::Reset => b'W',
             Self::LKHook => b'H',
             Self::Return => b'P',
@@ -84,6 +93,8 @@ pub enum Response<'a> {
     Nack(ProtocolError),
     /// Read data.
     Read { data: &'a [u8] },
+    /// Value.
+    Value(u32),
 }
 
 #[cfg(not(feature = "std"))]
@@ -93,6 +104,7 @@ impl Response<'_> {
             Self::Ack => b'A',
             Self::Nack(_) => b'N',
             Self::Read { .. } => b'R',
+            Self::Value(_) => b'V',
         }
     }
 }
@@ -167,6 +179,14 @@ impl<T: SimpleRead + SimpleWrite, const N: usize> Protocol<T, N> {
     }
 }
 
+impl Display for Property {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::BootImgAddress => write!(f, "boot.img temporary buffer address"),
+        }
+    }
+}
+
 impl Display for Message<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
@@ -190,6 +210,7 @@ impl Display for Message<'_> {
                 }
                 Ok(())
             }
+            Self::GetProperty(property) => write!(f, "Get property: {property}"),
             Self::Reset => write!(f, "Reset"),
             Self::LKHook => write!(f, "Hook LK"),
             Self::Return => write!(f, "Jump to usbdl_handler"),
@@ -216,6 +237,7 @@ impl Display for Response<'_> {
                 format_slice(f, data)?;
                 write!(f, "]")
             }
+            Self::Value(value) => write!(f, "Value: {value}"),
         }
     }
 }
