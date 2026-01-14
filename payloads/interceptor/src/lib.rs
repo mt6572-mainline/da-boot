@@ -10,13 +10,13 @@ use core::{alloc::Layout, mem::MaybeUninit, ptr};
 use alloc::vec::Vec;
 use shared::flush_cache;
 
-use crate::{
-    code::{JUMP, NOP, extract_ldr, is_32bit, is_ldr, pack_mov_pair, write_thumb2_instr},
-    err::Error,
-};
+use crate::{err::Error, thumb2writer::Thumb2Writer};
 
-mod code;
 pub mod err;
+mod reader;
+mod thumb2reader;
+mod thumb2writer;
+mod writer;
 
 pub type Result<T> = core::result::Result<T, Error>;
 
@@ -149,13 +149,6 @@ impl Interceptor {
         addr & !1
     }
 
-    unsafe fn place_jump(ptr: *mut u8, to: u32) {
-        unsafe {
-            (ptr as *mut u32).write_volatile(JUMP);
-            (ptr.add(4) as *mut u32).write_volatile(to);
-        }
-    }
-
     #[cfg(feature = "alloc")]
     pub unsafe fn init() {
         unsafe {
@@ -171,7 +164,7 @@ impl Interceptor {
             return Err(Error::UnsupportedMode);
         }
 
-        let mut target_ptr = Self::unmask_thumb2(target) as *mut u8;
+        let target_ptr = Self::unmask_thumb2(target) as *mut u8;
 
         #[cfg(feature = "alloc")]
         let pool = unsafe { POOL.get_mut() };
@@ -184,46 +177,50 @@ impl Interceptor {
 
         #[cfg(feature = "alloc")]
         unsafe {
+            use crate::{reader::Reader, thumb2reader::Thumb2Reader};
+
             let code = alloc::alloc::alloc(layout);
             let mut n_target = 0;
-            let mut n_code = 0;
+
+            let mut reader = Thumb2Reader::new(target_ptr as *const u16);
+            let mut writer = Thumb2Writer::new(code as *mut u16);
+
+            if !writer.is_aligned32() {
+                writer.nop();
+            }
+
             while n_target < size {
-                let v = (target_ptr.add(n_target) as *const u16).read_unaligned();
-                if is_32bit(v) {
+                if reader.is_32bit() {
                     // just copy for now
-                    ptr::copy_nonoverlapping(target_ptr.add(n_target), code.add(n_code), 4);
+                    writer.copy(reader.ptr() as *const u8, 4);
+                    reader.skip(2);
                     n_target += 4;
-                    n_code += 4;
                 } else {
-                    if is_ldr(v) {
-                        let data = extract_ldr(v);
+                    if reader.is_ldr() {
+                        let data = reader.read_ldr();
                         let pc_aligned = (target_ptr as u32 + n_target as u32 + 4) & !3;
                         let literal_address = pc_aligned + data.imm;
-                        let value = ptr::read_volatile(literal_address as *const u32);
-                        let (movw, movt) = pack_mov_pair(data.r, value);
-                        write_thumb2_instr(code.add(n_code), movw);
-                        write_thumb2_instr(code.add(n_code + 4), movt);
+                        let value = Reader::read32_unchecked(literal_address as *const u32);
 
-                        n_code += 8;
+                        let l = (value & 0xFFFF) as u16;
+                        let u = (value >> 16) as u16;
+                        writer.movw(data.r, l);
+                        writer.movt(data.r, u);
                     } else {
                         // just copy for now
-                        ptr::copy_nonoverlapping(target_ptr.add(n_target), code.add(n_code), 2);
-                        n_code += 2;
+                        writer.write16(reader.read16());
                     }
 
                     n_target += 2;
                 }
             }
 
-            while (code as u32 + n_code as u32) % 4 != 0 {
-                ptr::write_volatile(code.add(n_code) as *mut u16, NOP);
-                n_code += 2;
+            if !writer.is_aligned32() {
+                writer.nop();
             }
 
-            let jump_address = (target as u32 + n_target as u32) | 1;
-
-            ptr::write_volatile(code.add(n_code) as *mut u32, JUMP);
-            ptr::write_volatile(code.add(n_code + 4) as *mut u32, jump_address);
+            let jump_address = reader.ptr() as u32 | 1;
+            writer.jumpout(jump_address);
 
             flush_cache(code as usize, 64);
 
@@ -237,12 +234,12 @@ impl Interceptor {
         pool.address.push(target_ptr as u32);
 
         unsafe {
-            if target_ptr as u32 % 4 != 0 {
-                ptr::write_volatile(target_ptr as *mut u16, NOP);
-                target_ptr = target_ptr.add(2);
+            let mut writer = Thumb2Writer::new(target_ptr as *mut u16);
+            if !writer.is_aligned32() {
+                writer.nop();
             }
 
-            Self::place_jump(target_ptr, replacement as u32 | 1);
+            writer.jumpout(replacement as u32 | 1);
             flush_cache(target, 64);
         }
 
