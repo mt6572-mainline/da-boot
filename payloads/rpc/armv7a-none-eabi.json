@@ -14,7 +14,8 @@
   "max-atomic-width": 64,
   "pre-link-args": {
     "ld.lld": [
-      "-Tpayloads/rpc/payload.ld"
+      "-Tpayloads/rpc/payload.ld",
+      "--icf=all"
     ]
   },
   "metadata": {
