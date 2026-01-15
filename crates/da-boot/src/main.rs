@@ -170,7 +170,7 @@ struct State {
     pub cli: Cli,
 }
 
-fn get_ports() -> Result<Vec<(DeviceMode, SerialPortInfo)>> {
+fn get_ports() -> Result<impl Iterator<Item = (DeviceMode, SerialPortInfo)>> {
     Ok(available_ports()?
         .into_iter()
         .filter_map(|s| match &s.port_type {
@@ -190,22 +190,17 @@ fn get_ports() -> Result<Vec<(DeviceMode, SerialPortInfo)>> {
                 }
             }
             _ => None,
-        })
-        .collect())
+        }))
 }
 
 fn open_port() -> Result<(DeviceMode, Port)> {
     log!("Waiting for the device");
     let (mode, port) = loop {
-        let ports = get_ports()?;
-
-        if ports.len() > 1 {
-            return Err(Error::MoreThanOneDevice);
-        } else if ports.is_empty() {
-            log!(".");
-        } else {
+        if let Some(port) = get_ports()?.next() {
             println!("");
-            break ports[0].clone();
+            break port;
+        } else {
+            log!(".");
         }
 
         sleep(Duration::from_millis(500));
