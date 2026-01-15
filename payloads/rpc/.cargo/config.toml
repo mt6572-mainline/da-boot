@@ -1,7 +1,7 @@
 [build]
 target = "armv7a-none-eabi.json"
 
-[target.'cfg(target_arch = "arm")']
+[target.nostd]
 rustflags = [
   "-C", "relocation-model=pic",
   "-C", "link-arg=-pie",
