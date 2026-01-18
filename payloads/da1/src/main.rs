@@ -3,7 +3,7 @@
 
 use core::{arch::global_asm, mem::transmute, panic::PanicInfo, ptr};
 
-use shared::{flush_icache, uart_print, uart_println, uart_putc};
+use shared::{Serial, flush_icache, uart_print, uart_println};
 
 #[panic_handler]
 fn panic_handler(_: &PanicInfo) -> ! {
@@ -40,7 +40,7 @@ pub unsafe extern "C" fn main(pc: usize) -> ! {
         cmp_addr.write_volatile(0x4289); // cmp r1, r2 -> cmp r1, r1
         flush_icache();
 
-        uart_putc(b'j');
+        Serial::putc(b'j');
         type Boot = unsafe extern "C" fn() -> !;
         let f: Boot = transmute(jump);
         f();
