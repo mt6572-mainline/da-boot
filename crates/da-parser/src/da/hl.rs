@@ -3,11 +3,11 @@
 //! Intended for end use.
 use std::{ffi::CStr, fmt::Display};
 
-use getset::Getters;
+use getset::{Getters, MutGetters};
 
 use crate::{HLParser, LLParser, Result, da::ll};
 
-#[derive(Debug, Getters)]
+#[derive(Debug, Getters, MutGetters)]
 pub struct DA {
     /// Build ID
     #[getset(get = "pub", get_mut = "pub")]
@@ -68,7 +68,7 @@ impl DA {
     }
 }
 
-#[derive(Debug, Getters)]
+#[derive(Debug, Getters, MutGetters)]
 pub struct Entry {
     /// SoC hwcode
     #[getset(get = "pub", get_mut = "pub")]
@@ -163,7 +163,7 @@ impl Entry {
     }
 }
 
-#[derive(Debug, Getters)]
+#[derive(Debug, Getters, MutGetters)]
 pub struct Region {
     /// Executable code
     #[getset(get = "pub", get_mut = "pub")]
