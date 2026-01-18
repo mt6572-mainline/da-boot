@@ -175,16 +175,14 @@ fn get_ports() -> Result<impl Iterator<Item = (DeviceMode, SerialPortInfo)>> {
         .into_iter()
         .filter_map(|s| match &s.port_type {
             SerialPortType::UsbPort(p) => {
-                let is_target = p.pid == 0x2000 || p.pid == 0x0003;
-                if p.vid == 0x0e8d && is_target {
-                    Some((
-                        if p.pid == 0x0003 {
-                            DeviceMode::Brom
-                        } else {
-                            DeviceMode::Preloader
-                        },
-                        s,
-                    ))
+                if p.vid == 0x0e8d {
+                    if p.pid == 0x2000 {
+                        Some((DeviceMode::Preloader, s))
+                    } else if p.pid == 0x0003 {
+                        Some((DeviceMode::Brom, s))
+                    } else {
+                        None
+                    }
                 } else {
                     None
                 }
