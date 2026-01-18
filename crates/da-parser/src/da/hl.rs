@@ -165,13 +165,13 @@ impl Entry {
 
 #[derive(Debug, Getters, MutGetters)]
 pub struct Region {
-    /// Executable code
+    /// Region data
     #[getset(get = "pub", get_mut = "pub")]
-    code: Vec<u8>,
+    data: Vec<u8>,
 
-    /// Code signature
-    #[getset(get = "pub", get_mut = "pub")]
-    signature: Vec<u8>,
+    /// Signature size
+    #[getset(get = "pub")]
+    signature_len: u32,
 
     /// Code base address
     #[getset(get = "pub", get_mut = "pub")]
@@ -184,8 +184,8 @@ impl HLParser<ll::LoadRegion> for Region {
         let end = (ll.start + ll.len) as usize;
 
         Ok(Self {
-            code: data[ll.start as usize..end - ll.sig_len as usize].to_vec(),
-            signature: data[end - ll.sig_len as usize..end].to_vec(),
+            data: data[ll.start as usize..end].to_vec(),
+            signature_len: ll.sig_len,
             base: ll.base,
         })
     }
@@ -193,8 +193,35 @@ impl HLParser<ll::LoadRegion> for Region {
 
 impl Display for Region {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "Code: {} bytes", self.code.len())?;
-        writeln!(f, "Signature: {} bytes", self.signature.len())?;
+        writeln!(
+            f,
+            "Code: {} bytes",
+            self.data.len() - self.signature_len as usize
+        )?;
+        writeln!(f, "Signature: {} bytes", self.signature_len)?;
         write!(f, "Base address: {:#X}", self.base)
+    }
+}
+
+impl Region {
+    /// Executable code
+    pub fn code(&self) -> &[u8] {
+        &self.data[..self.signature_len as usize]
+    }
+
+    /// Executable code
+    pub fn code_mut(&mut self) -> &mut [u8] {
+        &mut self.data[..self.signature_len as usize]
+    }
+
+    /// Signature
+    pub fn signature(&self) -> &[u8] {
+        &self.data[self.data.len() - self.signature_len as usize..]
+    }
+
+    /// Signature
+    pub fn signature_mut(&mut self) -> &mut [u8] {
+        let len = self.data.len();
+        &mut self.data[len - self.signature_len as usize..]
     }
 }
