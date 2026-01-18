@@ -24,3 +24,4 @@ da-soc = { path = "../da-soc" }
 sha-1 = "0.10.1"
 enum_dispatch = { workspace = true }
 rustyline = "17.0.2"
+strum = { version = "0.27.2", features = ["derive"] }

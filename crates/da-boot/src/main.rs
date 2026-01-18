@@ -1,11 +1,11 @@
 use std::{fs, io::Write, path::PathBuf, thread::sleep, time::Duration};
 
 use bincode::Encode;
-use clap::{Parser, ValueEnum};
+use clap::{Parser, Subcommand, ValueEnum};
 use clap_num::maybe_hex;
 use colored::Colorize;
-use da_parser::{parse_lk, preloader_header_size};
-use da_patcher::{Assembler, Disassembler, Patch as _, PatchCollection, preloader::Preloader};
+use da_parser::{parse_da, parse_lk, preloader_header_size};
+use da_patcher::{Assembler, Disassembler, Patch, PatchCollection, preloader::Preloader};
 use da_protocol::{Message, Protocol};
 use da_soc::SoC;
 use derive_ctor::ctor;
@@ -14,16 +14,19 @@ use serialport::{SerialPortInfo, SerialPortType, available_ports};
 use simpleport::{Port, SimpleRead, SimpleWrite};
 
 use crate::{
+    boot::{BootStage, da::run_da1},
     commands::{
+        da::DA1Setup,
         generic::{GetHwCode, GetTargetConfig},
         preloader::{JumpDA, Read32, SendDA},
     },
     err::Error,
-    exploit::{Exploit as _, Exploits},
+    exploit::{Exploit, Exploits, ExploitsDiscriminants},
     repl::run_repl,
     rpc::HostExtensions,
 };
 
+mod boot;
 mod commands;
 mod err;
 mod exploit;
@@ -42,17 +45,6 @@ const PAYLOAD_NAME: &str = "target/armv7a-none-eabi/nostd/rpc";
 #[cfg(feature = "static")]
 const PAYLOAD: &[u8] = include_bytes!("../../../target/armv7a-none-eabi/nostd/rpc");
 
-#[derive(Clone, ValueEnum, IsVariant)]
-#[clap(rename_all = "kebab_case")]
-enum Exploit {
-    /// DA2 write32 command abuse
-    Croissant,
-    /// DA1 function pointer overwrite
-    Croissant2,
-    /// DA1 hash overwrite
-    Pumpkin,
-}
-
 #[derive(Clone, Default, ValueEnum, IsVariant)]
 #[clap(rename_all = "kebab_case")]
 enum Mode {
@@ -60,6 +52,47 @@ enum Mode {
     Raw,
     Lk,
     REPL,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// Boot bare-metal binary, LK, or Android boot image
+    Boot {
+        /// Binaries to upload
+        #[arg(short, long, value_delimiter = ' ', num_args = 1..)]
+        input: Vec<PathBuf>,
+
+        /// Addresses for binaries
+        #[arg(short, long, value_delimiter = ' ', num_args = 1.., value_parser=maybe_hex::<u32>)]
+        upload_address: Vec<u32>,
+
+        /// Final jump address, jumps to DA1 DRAM address if not set
+        #[arg(short, long, value_parser=maybe_hex::<u32>)]
+        jump_address: Option<u32>,
+
+        /// Boot mode
+        #[arg(short, long)]
+        mode: Option<Mode>,
+
+        /// LK boot mode
+        #[arg(long)]
+        lk_mode: Option<LkBootMode>,
+    },
+
+    /// Boot DA2
+    DA {
+        /// Path to DA file
+        #[arg(short, long)]
+        da: PathBuf,
+
+        /// Do not patch DA1 (or DA2, depends when exploit runs) if the preloader still checks for the DA hash, even without secure boot enabled.
+        #[arg(short, long)]
+        skip_patch: bool,
+
+        /// Use exploit if preloader requires signed DA1. Invoked automatically if the device has secure boot, defaults to the pumpkin (DA1 hash overwrite).
+        #[arg(long)]
+        exploit: Option<ExploitsDiscriminants>,
+    },
 }
 
 #[derive(Parser)]
@@ -77,25 +110,8 @@ struct Cli {
     #[arg(short, long)]
     preloader: Option<PathBuf>,
 
-    /// Binaries to upload
-    #[arg(short, long, value_delimiter = ' ', num_args = 1..)]
-    input: Vec<PathBuf>,
-
-    /// Addresses for binaries
-    #[arg(short, long, value_delimiter = ' ', num_args = 1.., value_parser=maybe_hex::<u32>)]
-    upload_address: Vec<u32>,
-
-    /// Final jump address, jumps to DA1 DRAM address if not set
-    #[arg(short, long, value_parser=maybe_hex::<u32>)]
-    jump_address: Option<u32>,
-
-    /// Boot mode
-    #[arg(short, long)]
-    mode: Option<Mode>,
-
-    /// LK boot mode
-    #[arg(long)]
-    lk_mode: Option<LkBootMode>,
+    #[clap(subcommand)]
+    command: Command,
 }
 
 #[derive(Debug, Clone, Default, Encode, ValueEnum)]
@@ -164,10 +180,20 @@ enum DeviceMode {
     Preloader,
 }
 
+impl Into<BootStage> for DeviceMode {
+    fn into(self) -> BootStage {
+        match self {
+            Self::Brom => BootStage::BootROM,
+            Self::Preloader => BootStage::Preloader,
+        }
+    }
+}
+
 #[derive(ctor)]
 struct State {
     pub soc: SoC,
     pub cli: Cli,
+    pub stage: BootStage,
 }
 
 fn get_ports() -> Result<impl Iterator<Item = (DeviceMode, SerialPortInfo)>> {
@@ -342,6 +368,8 @@ fn run_brom(mut state: State, mut port: Port, device_mode: DeviceMode) -> Result
     let (device_mode, mut port) = open_port()?;
     invalidate_ready(&mut port)?;
     handshake(&mut port)?;
+
+    state.stage = BootStage::Preloader;
     return run_preloader(state, port, device_mode);
 }
 
@@ -364,82 +392,92 @@ fn run_preloader(state: State, port: Port, device_mode: DeviceMode) -> Result<()
 
     let da_addr = get_da_addr(&state, device_mode);
 
-    run_payload(
-        da_addr,
-        #[cfg(feature = "static")]
-        PAYLOAD,
-        #[cfg(not(feature = "static"))]
-        &fs::read(PAYLOAD_NAME)?,
-        &mut port,
-    )?;
-
-    let mut protocol = Protocol::new(port, [0; 2048]);
-    protocol.start()?;
-
-    let mode = state.cli.mode.unwrap_or_default();
-    let payloads = state
-        .cli
-        .input
-        .into_iter()
-        .map(|i| fs::read(i).map_err(|e| e.into()))
-        .collect::<Result<Vec<_>>>()?;
-
-    for (idx, (payload, a)) in payloads
-        .iter()
-        .zip(state.cli.upload_address.iter())
-        .enumerate()
-    {
-        if mode.is_lk() && idx == 0 {
-            let lk = parse_lk(&payload);
-            let code = match lk {
-                Ok(ref lk) => {
-                    println!("\n{lk}");
-                    lk.code()
-                }
-                _ => {
-                    eprintln!("LK header detection failed, assuming raw binary");
-                    &payload
-                }
-            };
-
-            log!("Uploading LK to {a:#x}...");
-            status!(protocol.upload(*a, code))?;
-        } else {
-            log!("Uploading payload to {a:#x}...");
-            status!(protocol.upload(*a, &payload))?;
-        }
-    }
-
-    match mode {
-        Mode::Raw => (),
-        Mode::Lk => {
-            log!("Preparing boot argument for LK...");
-            let payload = bincode::encode_to_vec(
-                BootArgument::lk(state.cli.lk_mode.unwrap_or_default()),
-                bincode::config::standard()
-                    .with_little_endian()
-                    .with_fixed_int_encoding(),
+    match state.cli.command {
+        Command::Boot {
+            input,
+            upload_address,
+            jump_address,
+            mode,
+            lk_mode,
+        } => {
+            run_payload(
+                da_addr,
+                #[cfg(feature = "static")]
+                PAYLOAD,
+                #[cfg(not(feature = "static"))]
+                &fs::read(PAYLOAD_NAME)?,
+                &mut port,
             )?;
-            status!(protocol.upload(BOOT_ARG_ADDR, &payload))?;
 
-            if state.cli.upload_address.len() > 1 {
-                log!("Setting up LK hooks...");
-                protocol.send_message(Message::lk_hook())?;
-                if !status!(protocol.read_response())?.is_ack() {
-                    return Err(Error::Custom("Error on enabling LK hooks".into()));
+            let mut protocol = Protocol::new(port, [0; 2048]);
+            protocol.start()?;
+
+            let mode = mode.unwrap_or_default();
+            let payloads = input
+                .into_iter()
+                .map(|i| fs::read(i).map_err(|e| e.into()))
+                .collect::<Result<Vec<_>>>()?;
+
+            for (idx, (payload, a)) in payloads.iter().zip(upload_address.iter()).enumerate() {
+                if mode.is_lk() && idx == 0 {
+                    let lk = parse_lk(&payload);
+                    let code = match lk {
+                        Ok(ref lk) => {
+                            println!("\n{lk}");
+                            lk.code()
+                        }
+                        _ => {
+                            eprintln!("LK header detection failed, assuming raw binary");
+                            &payload
+                        }
+                    };
+
+                    log!("Uploading LK to {a:#x}...");
+                    status!(protocol.upload(*a, code))?;
+                } else {
+                    log!("Uploading payload to {a:#x}...");
+                    status!(protocol.upload(*a, &payload))?;
                 }
             }
-        }
-        Mode::REPL => return run_repl(protocol),
-    }
 
-    let jump = state.cli.jump_address.unwrap_or(da_addr);
-    log!("Jumping to {jump:#x}...");
-    status!(protocol.send_message(Message::jump(jump, Some(BOOT_ARG_ADDR), Some(250))))?;
-    if protocol.read_response().is_ok_and(|r| r.is_nack()) {
-        Err(Error::Custom("Jump failed".into()))
-    } else {
-        Ok(())
+            match mode {
+                Mode::Raw => (),
+                Mode::Lk => {
+                    log!("Preparing boot argument for LK...");
+                    let payload = bincode::encode_to_vec(
+                        BootArgument::lk(lk_mode.unwrap_or_default()),
+                        bincode::config::standard()
+                            .with_little_endian()
+                            .with_fixed_int_encoding(),
+                    )?;
+                    status!(protocol.upload(BOOT_ARG_ADDR, &payload))?;
+
+                    if upload_address.len() > 1 {
+                        log!("Setting up LK hooks...");
+                        protocol.send_message(Message::lk_hook())?;
+                        if !status!(protocol.read_response())?.is_ack() {
+                            return Err(Error::Custom("Error on enabling LK hooks".into()));
+                        }
+                    }
+                }
+                Mode::REPL => return run_repl(protocol),
+            }
+
+            let jump = jump_address.unwrap_or(da_addr);
+            log!("Jumping to {jump:#x}...");
+            status!(protocol.send_message(Message::jump(jump, Some(BOOT_ARG_ADDR), Some(250))))?;
+            if protocol.read_response().is_ok_and(|r| r.is_nack()) {
+                Err(Error::Custom("Jump failed".into()))
+            } else {
+                Ok(())
+            }
+        }
+
+        Command::DA {
+            da,
+            skip_patch,
+            exploit,
+        } => return run_da1(state.soc, port, da, skip_patch, exploit),
     }
 }
 
@@ -480,6 +518,7 @@ fn run(cli: Cli) -> Result<()> {
     let state = State::new(
         SoC::try_from_hwcode(hwcode).ok_or(Error::UnsupportedSoC(hwcode))?,
         cli,
+        device_mode.into(),
     );
     match device_mode {
         DeviceMode::Brom => run_brom(state, port, device_mode),
@@ -490,8 +529,19 @@ fn run(cli: Cli) -> Result<()> {
 fn main() -> core::result::Result<(), String> {
     let cli = Cli::parse();
 
-    assert!(!cli.input.is_empty());
-    assert_eq!(cli.input.len(), cli.upload_address.len());
+    match &cli.command {
+        Command::Boot {
+            input,
+            upload_address,
+            ..
+        } => {
+            assert!(!input.is_empty());
+            assert_eq!(input.len(), upload_address.len());
+        }
+        Command::DA { da, .. } => {
+            assert!(da.is_file() && da.exists());
+        }
+    }
 
     println!("For BROM mode short KCOL0 to the GND or add the crash option and connect the device");
     println!("For preloader mode simply connect the device");

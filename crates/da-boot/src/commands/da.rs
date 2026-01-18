@@ -144,15 +144,6 @@ impl DA1Setup {
 }
 
 #[derive(Default, Protocol)]
-#[protocol(naked)]
-pub(crate) struct DA2Ack {
-    #[protocol(ack(tx_then_rx))]
-    remainder_ack: u8,
-    #[protocol(ack(rx_then_tx))]
-    da2_ack: u8,
-}
-
-#[derive(Default, Protocol)]
 #[protocol(command = 0x7b)]
 pub(crate) struct Write32 {
     #[protocol(tx)]
