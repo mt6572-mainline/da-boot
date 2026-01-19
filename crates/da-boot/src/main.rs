@@ -1,12 +1,9 @@
-use std::{borrow::Cow, fs, io::Write, path::PathBuf, thread::sleep, time::Duration};
+use std::{io::Write, path::PathBuf, thread::sleep, time::Duration};
 
 use bincode::Encode;
 use clap::{Parser, Subcommand, ValueEnum};
 use clap_num::maybe_hex;
 use colored::Colorize;
-use da_parser::{parse_da, parse_lk, preloader_header_size};
-use da_patcher::{Assembler, Disassembler, Patch, PatchCollection, preloader::Preloader};
-use da_protocol::{Message, Protocol};
 use da_soc::SoC;
 use derive_ctor::ctor;
 use derive_more::IsVariant;
@@ -14,16 +11,16 @@ use serialport::{SerialPortInfo, SerialPortType, available_ports};
 use simpleport::{Port, SimpleRead, SimpleWrite};
 
 use crate::{
-    boot::{BootStage, da::run_da1},
+    boot::{
+        bootrom::run_brom,
+        preloader::{invalidate_ready, mt6572_preloader_workaround, run_preloader},
+    },
     commands::{
-        da::DA1Setup,
         generic::{GetHwCode, GetTargetConfig},
-        preloader::{JumpDA, Read32, SendDA},
+        preloader::{JumpDA, SendDA},
     },
     err::Error,
-    exploit::{Exploit, Exploits, ExploitsDiscriminants},
-    repl::run_repl,
-    rpc::HostExtensions,
+    exploit::ExploitsDiscriminants,
 };
 
 mod boot;
@@ -35,8 +32,6 @@ mod repl;
 mod rpc;
 
 type Result<T> = core::result::Result<T, Error>;
-
-const HANDSHAKE: [u8; 3] = [0x0a, 0x50, 0x05];
 
 const BOOT_ARG_ADDR: u32 = 0x800d0000;
 
@@ -180,20 +175,10 @@ enum DeviceMode {
     Preloader,
 }
 
-impl Into<BootStage> for DeviceMode {
-    fn into(self) -> BootStage {
-        match self {
-            Self::Brom => BootStage::BootROM,
-            Self::Preloader => BootStage::Preloader,
-        }
-    }
-}
-
 #[derive(ctor)]
 struct State {
     pub soc: SoC,
     pub cli: Cli,
-    pub stage: BootStage,
 }
 
 fn get_ports() -> Result<impl Iterator<Item = (DeviceMode, SerialPortInfo)>> {
@@ -239,13 +224,6 @@ fn open_port() -> Result<(DeviceMode, Port)> {
     ))
 }
 
-fn crash_to_brom(port: &mut Port) -> Result<()> {
-    match Read32::new(0x0, 1).run(port) {
-        Err(Error::Simpleport(simpleport::err::Error::Io(_))) => Ok(()),
-        _ => Err(Error::Custom("Retry".into())),
-    }
-}
-
 fn handshake(port: &mut Port) -> Result<()> {
     loop {
         port.write_u8(0xa0)?;
@@ -256,7 +234,7 @@ fn handshake(port: &mut Port) -> Result<()> {
         }
     }
 
-    for byte in HANDSHAKE {
+    for byte in [0x0a, 0x50, 0x05] {
         port.write_u8(byte)?;
     }
 
@@ -265,13 +243,6 @@ fn handshake(port: &mut Port) -> Result<()> {
     port.clear(serialport::ClearBuffer::All)?;
 
     Ok(())
-}
-
-fn get_da_addr(state: &State, mode: DeviceMode) -> u32 {
-    match mode {
-        DeviceMode::Brom => state.soc.da_sram_addr(),
-        DeviceMode::Preloader => state.soc.da_dram_addr(),
-    }
 }
 
 fn get_hwcode(port: &mut Port) -> Result<u16> {
@@ -297,203 +268,6 @@ fn run_payload(addr: u32, payload: &[u8], port: &mut Port) -> Result<()> {
     status!(JumpDA::new(addr).run(port))
 }
 
-fn run_brom(mut state: State, mut port: Port, device_mode: DeviceMode) -> Result<()> {
-    assert!(device_mode.is_brom());
-
-    run_payload(0x2001000, &rpc_payload()?, &mut port)?;
-
-    let mut protocol = Protocol::new(port, [0; 2048]);
-
-    log!("Trying to sync with brom payload...");
-    status!(protocol.start())?;
-
-    let mut payload = if let Some(ref preloader) = state.cli.preloader {
-        let mut payload = fs::read(preloader)?;
-        let header = preloader_header_size(&payload).unwrap_or_else(|_| {
-            eprintln!("Preloader header detection failed, assuming raw binary");
-            0
-        });
-
-        payload.drain(0..header);
-        payload
-    } else {
-        return Err(Error::Custom(
-            "Preloader is required in the BROM mode, please specify preloader without header via -p option".into(),
-        ));
-    };
-
-    payload.truncate(100 * 1024);
-
-    let asm = Assembler::try_new()?;
-    let disasm = Disassembler::try_new()?;
-
-    println!("Patching preloader...");
-    for i in [
-        Preloader::security(&asm, &disasm),
-        Preloader::hardcoded(&asm, &disasm),
-    ]
-    .iter()
-    .flatten()
-    {
-        match i.patch(&mut payload) {
-            Ok(()) => println!("{}", i.on_success().green()),
-            Err(e) => println!("{}: {e}", i.on_failure().red()),
-        }
-    }
-
-    let preloader_base = state.soc.preloader_addr();
-
-    log!("Booting preloader at {preloader_base:#x}...");
-    status!(protocol.upload(preloader_base, &payload))?;
-
-    log!("Jumping to {preloader_base:#x}...");
-    status!(protocol.send_message(Message::jump(preloader_base, None, None)))?;
-    if protocol.read_response().is_ok_and(|r| r.is_nack()) {
-        return Err(Error::Custom("Jump failed".into()));
-    }
-
-    state.cli.crash = false;
-
-    drop(protocol);
-    sleep(Duration::from_millis(100));
-    println!();
-
-    let (device_mode, mut port) = open_port()?;
-    invalidate_ready(&mut port)?;
-    handshake(&mut port)?;
-
-    state.stage = BootStage::Preloader;
-    return run_preloader(state, port, device_mode);
-}
-
-fn run_preloader(state: State, port: Port, device_mode: DeviceMode) -> Result<()> {
-    assert!(device_mode.is_preloader());
-
-    let mut port = mt6572_preloader_workaround(port)?;
-
-    if state.cli.crash {
-        log!("Crashing to brom mode...");
-        status!(crash_to_brom(&mut port))?;
-        drop(port);
-        sleep(Duration::from_millis(100));
-        println!();
-
-        let (device_mode, mut port) = open_port()?;
-        handshake(&mut port)?;
-        return run_brom(state, port, device_mode);
-    }
-
-    let da_addr = get_da_addr(&state, device_mode);
-
-    match state.cli.command {
-        Command::Boot(command) => {
-            run_payload(da_addr, &rpc_payload()?, &mut port)?;
-
-            let mut protocol = Protocol::new(port, [0; 2048]);
-            protocol.start()?;
-
-            let mode = command.mode.unwrap_or_default();
-            let payloads = command
-                .input
-                .into_iter()
-                .map(|i| fs::read(i).map_err(|e| e.into()))
-                .collect::<Result<Vec<_>>>()?;
-
-            for (idx, (payload, a)) in payloads
-                .iter()
-                .zip(command.upload_address.iter())
-                .enumerate()
-            {
-                if mode.is_lk() && idx == 0 {
-                    let lk = parse_lk(&payload);
-                    let code = match lk {
-                        Ok(ref lk) => {
-                            println!("\n{lk}");
-                            lk.code()
-                        }
-                        _ => {
-                            eprintln!("LK header detection failed, assuming raw binary");
-                            &payload
-                        }
-                    };
-
-                    log!("Uploading LK to {a:#x}...");
-                    status!(protocol.upload(*a, code))?;
-                } else {
-                    log!("Uploading payload to {a:#x}...");
-                    status!(protocol.upload(*a, &payload))?;
-                }
-            }
-
-            match mode {
-                Mode::Raw => (),
-                Mode::Lk => {
-                    log!("Preparing boot argument for LK...");
-                    let payload = bincode::encode_to_vec(
-                        BootArgument::lk(command.lk_mode.unwrap_or_default()),
-                        bincode::config::standard()
-                            .with_little_endian()
-                            .with_fixed_int_encoding(),
-                    )?;
-                    status!(protocol.upload(BOOT_ARG_ADDR, &payload))?;
-
-                    if command.upload_address.len() > 1 {
-                        log!("Setting up LK hooks...");
-                        protocol.send_message(Message::lk_hook())?;
-                        if !status!(protocol.read_response())?.is_ack() {
-                            return Err(Error::Custom("Error on enabling LK hooks".into()));
-                        }
-                    }
-                }
-                Mode::REPL => return run_repl(protocol),
-            }
-
-            let jump = command.jump_address.unwrap_or(da_addr);
-            log!("Jumping to {jump:#x}...");
-            status!(protocol.send_message(Message::jump(jump, Some(BOOT_ARG_ADDR), Some(250))))?;
-            if protocol.read_response().is_ok_and(|r| r.is_nack()) {
-                Err(Error::Custom("Jump failed".into()))
-            } else {
-                Ok(())
-            }
-        }
-
-        Command::DA(command) => return run_da1(state.soc, port, command),
-    }
-}
-
-fn rpc_payload() -> Result<Cow<'static, [u8]>> {
-    #[cfg(not(feature = "static"))]
-    {
-        Ok(Cow::Owned(fs::read("target/armv7a-none-eabi/nostd/rpc")?))
-    }
-    #[cfg(feature = "static")]
-    {
-        Ok(Cow::Borrowed(include_bytes!(
-            "../../../target/armv7a-none-eabi/nostd/rpc"
-        )))
-    }
-}
-
-fn invalidate_ready(port: &mut Port) -> Result<()> {
-    /* Read "READY", just to be safe let's expect it may appear up to 4 times */
-    let mut buf = [0; 20];
-    let _ = port.read(&mut buf)?;
-    Ok(())
-}
-
-fn mt6572_preloader_workaround(mut port: Port) -> Result<Port> {
-    if let Err(_) = get_hwcode(&mut port) {
-        drop(port);
-        let (_, mut port) = open_port()?;
-        invalidate_ready(&mut port)?;
-        handshake(&mut port)?;
-        Ok(port)
-    } else {
-        Ok(port)
-    }
-}
-
 fn run(cli: Cli) -> Result<()> {
     let (device_mode, mut port) = open_port()?;
 
@@ -512,7 +286,6 @@ fn run(cli: Cli) -> Result<()> {
     let state = State::new(
         SoC::try_from_hwcode(hwcode).ok_or(Error::UnsupportedSoC(hwcode))?,
         cli,
-        device_mode.into(),
     );
     match device_mode {
         DeviceMode::Brom => run_brom(state, port, device_mode),
