@@ -1,4 +1,4 @@
-use std::{borrow::Cow, fs, path::PathBuf};
+use std::{borrow::Cow, fs};
 
 use colored::Colorize;
 use da_parser::parse_da;
@@ -7,28 +7,22 @@ use da_soc::SoC;
 use simpleport::{Port, SimpleRead, SimpleWrite};
 
 use crate::{
-    Result,
+    CommandDA, Result,
     commands::{
         da::DA1Setup,
         preloader::{JumpDA, SendDA},
     },
     err::Error,
-    exploit::{Exploit, Exploits, ExploitsDiscriminants},
+    exploit::{Exploit, Exploits},
     log, status,
 };
 
-pub fn run_da1(
-    soc: SoC,
-    mut port: Port,
-    da: PathBuf,
-    skip_patch: bool,
-    exploit: Option<ExploitsDiscriminants>,
-) -> Result<()> {
-    let mut file = parse_da(&fs::read(da)?)?;
+pub fn run_da1(soc: SoC, mut port: Port, command: CommandDA) -> Result<()> {
+    let mut file = parse_da(&fs::read(command.da)?)?;
     let da = file
         .hwcode_mut(soc.as_hwcode())
         .ok_or(Error::Custom("hwcode not found in the DA".into()))?;
-    if !skip_patch {
+    if !command.skip_patch {
         let asm = Assembler::try_new()?;
         let disasm = Disassembler::try_new()?;
 
@@ -69,7 +63,7 @@ pub fn run_da1(
     status!(da1info.run(&mut port))?;
     println!("DA v{}.{}", da1info.major(), da1info.minor());
 
-    if let Some(exploit) = exploit {
+    if let Some(exploit) = command.exploit {
         let payload = &da1_payload()?;
         do_run_exploit(
             &mut port,

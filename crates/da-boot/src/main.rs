@@ -49,45 +49,50 @@ enum Mode {
     REPL,
 }
 
+/// Boot bare-metal binary, LK, or Android boot image
+#[derive(Parser)]
+struct CommandBoot {
+    /// Binaries to upload
+    #[arg(short, long, value_delimiter = ' ', num_args = 1..)]
+    input: Vec<PathBuf>,
+
+    /// Addresses for binaries
+    #[arg(short, long, value_delimiter = ' ', num_args = 1.., value_parser=maybe_hex::<u32>)]
+    upload_address: Vec<u32>,
+
+    /// Final jump address, jumps to DA1 DRAM address if not set
+    #[arg(short, long, value_parser=maybe_hex::<u32>)]
+    jump_address: Option<u32>,
+
+    /// Boot mode
+    #[arg(short, long)]
+    mode: Option<Mode>,
+
+    /// LK boot mode
+    #[arg(long)]
+    lk_mode: Option<LkBootMode>,
+}
+
+/// Boot DA
+#[derive(Parser)]
+struct CommandDA {
+    /// Path to DA file
+    #[arg(short, long)]
+    da: PathBuf,
+
+    /// Do not patch DA1 (or DA2, depends when exploit runs) if the preloader still checks for the DA hash, even without secure boot enabled.
+    #[arg(short, long)]
+    skip_patch: bool,
+
+    /// Use exploit if preloader requires signed DA1. Invoked automatically if the device has secure boot, defaults to the pumpkin (DA1 hash overwrite).
+    #[arg(long)]
+    exploit: Option<ExploitsDiscriminants>,
+}
+
 #[derive(Subcommand)]
 enum Command {
-    /// Boot bare-metal binary, LK, or Android boot image
-    Boot {
-        /// Binaries to upload
-        #[arg(short, long, value_delimiter = ' ', num_args = 1..)]
-        input: Vec<PathBuf>,
-
-        /// Addresses for binaries
-        #[arg(short, long, value_delimiter = ' ', num_args = 1.., value_parser=maybe_hex::<u32>)]
-        upload_address: Vec<u32>,
-
-        /// Final jump address, jumps to DA1 DRAM address if not set
-        #[arg(short, long, value_parser=maybe_hex::<u32>)]
-        jump_address: Option<u32>,
-
-        /// Boot mode
-        #[arg(short, long)]
-        mode: Option<Mode>,
-
-        /// LK boot mode
-        #[arg(long)]
-        lk_mode: Option<LkBootMode>,
-    },
-
-    /// Boot DA2
-    DA {
-        /// Path to DA file
-        #[arg(short, long)]
-        da: PathBuf,
-
-        /// Do not patch DA1 (or DA2, depends when exploit runs) if the preloader still checks for the DA hash, even without secure boot enabled.
-        #[arg(short, long)]
-        skip_patch: bool,
-
-        /// Use exploit if preloader requires signed DA1. Invoked automatically if the device has secure boot, defaults to the pumpkin (DA1 hash overwrite).
-        #[arg(long)]
-        exploit: Option<ExploitsDiscriminants>,
-    },
+    Boot(CommandBoot),
+    DA(CommandDA),
 }
 
 #[derive(Parser)]
@@ -381,25 +386,24 @@ fn run_preloader(state: State, port: Port, device_mode: DeviceMode) -> Result<()
     let da_addr = get_da_addr(&state, device_mode);
 
     match state.cli.command {
-        Command::Boot {
-            input,
-            upload_address,
-            jump_address,
-            mode,
-            lk_mode,
-        } => {
+        Command::Boot(command) => {
             run_payload(da_addr, &rpc_payload()?, &mut port)?;
 
             let mut protocol = Protocol::new(port, [0; 2048]);
             protocol.start()?;
 
-            let mode = mode.unwrap_or_default();
-            let payloads = input
+            let mode = command.mode.unwrap_or_default();
+            let payloads = command
+                .input
                 .into_iter()
                 .map(|i| fs::read(i).map_err(|e| e.into()))
                 .collect::<Result<Vec<_>>>()?;
 
-            for (idx, (payload, a)) in payloads.iter().zip(upload_address.iter()).enumerate() {
+            for (idx, (payload, a)) in payloads
+                .iter()
+                .zip(command.upload_address.iter())
+                .enumerate()
+            {
                 if mode.is_lk() && idx == 0 {
                     let lk = parse_lk(&payload);
                     let code = match lk {
@@ -426,14 +430,14 @@ fn run_preloader(state: State, port: Port, device_mode: DeviceMode) -> Result<()
                 Mode::Lk => {
                     log!("Preparing boot argument for LK...");
                     let payload = bincode::encode_to_vec(
-                        BootArgument::lk(lk_mode.unwrap_or_default()),
+                        BootArgument::lk(command.lk_mode.unwrap_or_default()),
                         bincode::config::standard()
                             .with_little_endian()
                             .with_fixed_int_encoding(),
                     )?;
                     status!(protocol.upload(BOOT_ARG_ADDR, &payload))?;
 
-                    if upload_address.len() > 1 {
+                    if command.upload_address.len() > 1 {
                         log!("Setting up LK hooks...");
                         protocol.send_message(Message::lk_hook())?;
                         if !status!(protocol.read_response())?.is_ack() {
@@ -444,7 +448,7 @@ fn run_preloader(state: State, port: Port, device_mode: DeviceMode) -> Result<()
                 Mode::REPL => return run_repl(protocol),
             }
 
-            let jump = jump_address.unwrap_or(da_addr);
+            let jump = command.jump_address.unwrap_or(da_addr);
             log!("Jumping to {jump:#x}...");
             status!(protocol.send_message(Message::jump(jump, Some(BOOT_ARG_ADDR), Some(250))))?;
             if protocol.read_response().is_ok_and(|r| r.is_nack()) {
@@ -454,11 +458,7 @@ fn run_preloader(state: State, port: Port, device_mode: DeviceMode) -> Result<()
             }
         }
 
-        Command::DA {
-            da,
-            skip_patch,
-            exploit,
-        } => return run_da1(state.soc, port, da, skip_patch, exploit),
+        Command::DA(command) => return run_da1(state.soc, port, command),
     }
 }
 
@@ -524,16 +524,12 @@ fn main() -> core::result::Result<(), String> {
     let cli = Cli::parse();
 
     match &cli.command {
-        Command::Boot {
-            input,
-            upload_address,
-            ..
-        } => {
-            assert!(!input.is_empty());
-            assert_eq!(input.len(), upload_address.len());
+        Command::Boot(command) => {
+            assert!(!command.input.is_empty());
+            assert_eq!(command.input.len(), command.upload_address.len());
         }
-        Command::DA { da, .. } => {
-            assert!(da.is_file() && da.exists());
+        Command::DA(command) => {
+            assert!(command.da.is_file() && command.da.exists());
         }
     }
 
