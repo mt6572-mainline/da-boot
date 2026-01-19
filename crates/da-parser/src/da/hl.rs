@@ -206,12 +206,14 @@ impl Display for Region {
 impl Region {
     /// Executable code
     pub fn code(&self) -> &[u8] {
-        &self.data[..self.signature_len as usize]
+        let len = self.data.len();
+        &self.data[..len - self.signature_len as usize]
     }
 
     /// Executable code
     pub fn code_mut(&mut self) -> &mut [u8] {
-        &mut self.data[..self.signature_len as usize]
+        let len = self.data.len();
+        &mut self.data[..len - self.signature_len as usize]
     }
 
     /// Signature
