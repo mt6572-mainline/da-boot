@@ -1,4 +1,4 @@
-use std::{fs, io::Write, path::PathBuf, thread::sleep, time::Duration};
+use std::{borrow::Cow, fs, io::Write, path::PathBuf, thread::sleep, time::Duration};
 
 use bincode::Encode;
 use clap::{Parser, Subcommand, ValueEnum};
@@ -39,11 +39,6 @@ type Result<T> = core::result::Result<T, Error>;
 const HANDSHAKE: [u8; 3] = [0x0a, 0x50, 0x05];
 
 const BOOT_ARG_ADDR: u32 = 0x800d0000;
-
-#[cfg(not(feature = "static"))]
-const PAYLOAD_NAME: &str = "target/armv7a-none-eabi/nostd/rpc";
-#[cfg(feature = "static")]
-const PAYLOAD: &[u8] = include_bytes!("../../../target/armv7a-none-eabi/nostd/rpc");
 
 #[derive(Clone, Default, ValueEnum, IsVariant)]
 #[clap(rename_all = "kebab_case")]
@@ -300,14 +295,7 @@ fn run_payload(addr: u32, payload: &[u8], port: &mut Port) -> Result<()> {
 fn run_brom(mut state: State, mut port: Port, device_mode: DeviceMode) -> Result<()> {
     assert!(device_mode.is_brom());
 
-    run_payload(
-        0x2001000,
-        #[cfg(feature = "static")]
-        PAYLOAD,
-        #[cfg(not(feature = "static"))]
-        &fs::read(PAYLOAD_NAME)?,
-        &mut port,
-    )?;
+    run_payload(0x2001000, &rpc_payload()?, &mut port)?;
 
     let mut protocol = Protocol::new(port, [0; 2048]);
 
@@ -400,14 +388,7 @@ fn run_preloader(state: State, port: Port, device_mode: DeviceMode) -> Result<()
             mode,
             lk_mode,
         } => {
-            run_payload(
-                da_addr,
-                #[cfg(feature = "static")]
-                PAYLOAD,
-                #[cfg(not(feature = "static"))]
-                &fs::read(PAYLOAD_NAME)?,
-                &mut port,
-            )?;
+            run_payload(da_addr, &rpc_payload()?, &mut port)?;
 
             let mut protocol = Protocol::new(port, [0; 2048]);
             protocol.start()?;
@@ -478,6 +459,19 @@ fn run_preloader(state: State, port: Port, device_mode: DeviceMode) -> Result<()
             skip_patch,
             exploit,
         } => return run_da1(state.soc, port, da, skip_patch, exploit),
+    }
+}
+
+fn rpc_payload() -> Result<Cow<'static, [u8]>> {
+    #[cfg(not(feature = "static"))]
+    {
+        Ok(Cow::Owned(fs::read("target/armv7a-none-eabi/nostd/rpc")?))
+    }
+    #[cfg(feature = "static")]
+    {
+        Ok(Cow::Borrowed(include_bytes!(
+            "../../../target/armv7a-none-eabi/nostd/rpc"
+        )))
     }
 }
 
