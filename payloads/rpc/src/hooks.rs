@@ -1,7 +1,7 @@
 use crate::LK_END;
 use core::ptr;
 use interceptor::{Interceptor, c_function, hook};
-use shared::{LK_BASE, Serial, flush_cache, search, uart_print, uart_println};
+use shared::{LK_BASE, Serial, search, uart_print, uart_println};
 
 pub const BOOT_IMG: u32 = 0x83000000;
 
@@ -27,8 +27,6 @@ pub mod hooks {
 
                     unsafe {
                         ptr::copy_nonoverlapping((BOOT_IMG as *const u8).add(delta), dst, size);
-
-                        flush_cache(dst as usize, size);
                     }
 
                     ctx.r0 = size as u32;
