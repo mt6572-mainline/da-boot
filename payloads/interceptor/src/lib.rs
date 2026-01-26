@@ -191,9 +191,25 @@ impl Interceptor {
 
             while n_target < size {
                 if reader.is_32bit() {
-                    // just copy for now
-                    writer.copy(reader.ptr() as *const u8, 4);
-                    reader.skip(2);
+                    if reader.is_ldr_w() {
+                        let data = reader.read_ldr_w();
+
+                        let pc_aligned = (target_ptr as u32 + n_target as u32 + 4) & !3;
+                        let literal_address = if data.add {
+                            pc_aligned + data.imm
+                        } else {
+                            pc_aligned - data.imm
+                        };
+                        let value = Reader::read32_unchecked(literal_address as *const u32);
+
+                        writer.movw(data.r, (value & 0xFFFF) as u16);
+                        writer.movt(data.r, (value >> 16) as u16);
+                    } else {
+                        // just copy for now
+                        writer.copy(reader.ptr() as *const u8, 4);
+                        reader.skip(2);
+                    }
+
                     n_target += 4;
                 } else {
                     if reader.is_ldr() {

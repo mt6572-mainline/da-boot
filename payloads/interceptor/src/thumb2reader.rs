@@ -10,7 +10,7 @@ pub struct Thumb2Reader {
 impl Thumb2Reader {
     /// Read u16 without consuming it
     #[inline(always)]
-    pub unsafe fn poke16(&mut self) -> u16 {
+    pub unsafe fn poke16(&self) -> u16 {
         unsafe { Reader::read16(self.ptr) }
     }
 
@@ -59,7 +59,7 @@ impl Thumb2Reader {
 
     /// Guess if the instruction is `ldr`
     #[inline]
-    pub fn is_ldr(&mut self) -> bool {
+    pub fn is_ldr(&self) -> bool {
         (unsafe { self.poke16() } & 0xF800) == 0x4800
     }
 
@@ -71,9 +71,37 @@ impl Thumb2Reader {
 
         RegAndImm { r, imm }
     }
+
+    #[inline]
+    pub fn is_ldr_w(&self) -> bool {
+        unsafe { (self.poke16() & 0xFF7F) == 0xF85F }
+    }
+
+    pub fn read_ldr_w(&mut self) -> LdrW {
+        unsafe {
+            let hw1 = self.read16();
+            let hw2 = self.read16();
+
+            let add = (hw1 & 0x0080) != 0;
+            let rt = ((hw2 >> 12) & 0xF) as u8;
+            let imm12 = (hw2 & 0xFFF) as u32;
+
+            LdrW {
+                r: rt,
+                imm: imm12,
+                add,
+            }
+        }
+    }
 }
 
 pub struct RegAndImm<T = u16> {
     pub r: u8,
     pub imm: T,
+}
+
+pub struct LdrW {
+    pub r: u8,
+    pub imm: u32,
+    pub add: bool,
 }
