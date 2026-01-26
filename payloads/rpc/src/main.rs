@@ -8,7 +8,7 @@ use core::{
     panic::PanicInfo,
     ptr,
 };
-use da_protocol::{Message, NotFoundError, Property, Protocol, ProtocolError, Response};
+use da_protocol::{HookId, Message, NotFoundError, Protocol, ProtocolError, Response};
 use derive_ctor::ctor;
 use interceptor::{Interceptor, c_function};
 use shared::{LK_BASE, PRELOADER_BASE, Serial, flush_cache, search, search_pattern, uart_print, uart_println};
@@ -80,6 +80,9 @@ pub unsafe extern "C" fn main() -> ! {
     let usb = if is_bootrom() {
         unsafe { USB::new(transmute(USBDL_GET_DATA | 1), transmute(USBDL_PUT_DATA | 1)) }
     } else {
+        uart_println!("Initializing interceptor");
+        unsafe { Interceptor::init() };
+
         let send_addr = search!(PRELOADER_BASE, PRELOADER_END, 0xb508, 0x4603, 0x2200, 0x4608, 0x4619).expect("usb_send not found");
         let recv_addr = search!(PRELOADER_BASE, PRELOADER_END, 0xe92d, 0x42f0, 0x4605, 0x2000).expect("usb_recv not found");
 
@@ -137,27 +140,23 @@ pub unsafe extern "C" fn main() -> ! {
                             }
                         }
                     },
-                    Message::GetProperty(property) => match property {
-                        Property::BootImgAddress => Response::value(BOOT_IMG),
-                    },
                     Message::Reset => unsafe {
                         Serial::disable_fifo();
                         (0x10007014 as *mut u32).write_volatile(0x1209);
                         Response::ack()
                     },
-                    Message::LKHook => unsafe {
-                        uart_println!("Initializing interceptor");
-                        Interceptor::init();
-
-                        if let Some(mt_part_generic_read) =
-                            search!(LK_BASE, LK_END, 0xe92d, 0x4ff0, 0x4699, 0x4b60, 0xb08d).or_else(|| search!(LK_BASE, LK_END, 0xe92d, 0x4ff0, 0x4699, 0x4b61, 0xb089, 0x4690))
-                        {
-                            hooks::hooks::mt_part_generic_read::replace(mt_part_generic_read | 1);
-                            uart_println!("replaced mt_part_generic_read");
-                            Response::ack()
-                        } else {
-                            Response::nack(ProtocolError::NotFound(NotFoundError::MtPartGenericRead))
-                        }
+                    Message::Hook(id) => match id {
+                        HookId::MtPartGenericRead => unsafe {
+                            if let Some(mt_part_generic_read) = search!(LK_BASE, LK_END, 0xe92d, 0x4ff0, 0x4699, 0x4b60, 0xb08d)
+                                .or_else(|| search!(LK_BASE, LK_END, 0xe92d, 0x4ff0, 0x4699, 0x4b61, 0xb089, 0x4690))
+                            {
+                                hooks::hooks::mt_part_generic_read::replace(mt_part_generic_read | 1);
+                                uart_println!("replaced mt_part_generic_read");
+                                Response::ack()
+                            } else {
+                                Response::nack(ProtocolError::NotFound(NotFoundError::MtPartGenericRead))
+                            }
+                        },
                     },
                     Message::Return => unsafe {
                         Serial::disable_fifo();
