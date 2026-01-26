@@ -32,10 +32,10 @@ start:
     blt .L_copy_loop
 
     mov r0, #0
-    mcr p15, 0, r0, c7, c10, 4  // dsb
+    dsb
     mcr p15, 0, r0, c7, c5, 0   // invalidate icache
     mcr p15, 0, r0, c7, c5, 6   // Invalidate bp
-    mcr p15, 0, r0, c7, c10, 4  // dsb
+    dsb
     isb sy
 
     bx r5
