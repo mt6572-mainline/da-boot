@@ -1,7 +1,7 @@
 use std::{borrow::Cow, fs};
 
 use da_parser::parse_lk;
-use da_protocol::{Message, Protocol};
+use da_protocol::{HookId, Message, Protocol};
 use da_soc::SoC;
 use simpleport::Port;
 
@@ -63,7 +63,7 @@ pub fn run_rpc_preloader(soc: SoC, mut port: Port, command: CommandBoot) -> Resu
 
             if command.upload_address.len() > 1 {
                 log!("Setting up LK hooks...");
-                protocol.send_message(Message::lk_hook())?;
+                protocol.send_message(Message::hook(HookId::MtPartGenericRead))?;
                 if !status!(protocol.read_response())?.is_ack() {
                     return Err(Error::Custom("Error on enabling LK hooks".into()));
                 }
