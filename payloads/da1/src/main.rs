@@ -37,7 +37,7 @@ pub unsafe extern "C" fn main(pc: usize) -> ! {
             ptr.write_volatile(original_fn);
         }
 
-        cmp_addr.write_volatile(0x4289); // cmp r1, r2 -> cmp r1, r1
+        cmp_addr.write_volatile(0x4289); // cmp r1, r1 to pass the check
         flush_icache();
 
         Serial::putc(b'j');
