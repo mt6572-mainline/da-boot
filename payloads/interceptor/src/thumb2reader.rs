@@ -14,28 +14,12 @@ impl Thumb2Reader {
         unsafe { Reader::read16(self.ptr) }
     }
 
-    /// Read u32 without consuming it
-    #[inline(always)]
-    pub unsafe fn poke32(&mut self) -> u32 {
-        unsafe { Reader::read32(self.ptr) }
-    }
-
     /// Read u16
     #[inline(always)]
     pub unsafe fn read16(&mut self) -> u16 {
         unsafe {
             let v = self.poke16();
             self.skip(1);
-            v
-        }
-    }
-
-    /// Read u32
-    #[inline(always)]
-    pub unsafe fn read32(&mut self) -> u32 {
-        unsafe {
-            let v = self.poke32();
-            self.skip(2);
             v
         }
     }

@@ -12,10 +12,4 @@ impl Reader {
     pub unsafe fn read32_unchecked(ptr: *const u32) -> u32 {
         unsafe { *(ptr as *const u32) }
     }
-
-    /// Read `ptr` as u32 unaligned ptr
-    #[inline(always)]
-    pub unsafe fn read32(ptr: *const u16) -> u32 {
-        unsafe { (ptr as *const u32).read_unaligned() }
-    }
 }
