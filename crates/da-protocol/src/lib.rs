@@ -14,9 +14,9 @@ pub mod err;
 pub type Result<T> = core::result::Result<T, Error>;
 
 #[derive(Serialize, Deserialize)]
-pub enum Property {
-    /// `boot.img` payload address.
-    BootImgAddress,
+pub enum HookId {
+    /// Allow booting boot.img or recovery.img from the RAM
+    MtPartGenericRead,
 }
 
 /// Protocol messages
@@ -37,12 +37,10 @@ pub enum Message<'a> {
         r0: Option<u32>,
         r1: Option<u32>,
     },
-    /// Read property from client.
-    GetProperty(Property),
     /// Reset the device using watchdog.
     Reset,
-    /// Setup LK hooks for booting boot.img / raw_binary using `boot_linux`
-    LKHook,
+    /// Setup hook
+    Hook(HookId),
 
     /// Return to `usbdl_handler` in the preloader mode.
     Return,
@@ -57,9 +55,8 @@ impl Message<'_> {
             Self::Write { .. } => b'W',
             Self::FlushCache { .. } => b'F',
             Self::Jump { .. } => b'J',
-            Self::GetProperty(_) => b'G',
             Self::Reset => b'W',
-            Self::LKHook => b'H',
+            Self::Hook(_) => b'H',
             Self::Return => b'P',
         }
     }
@@ -189,10 +186,10 @@ impl<T: SimpleRead + SimpleWrite, const N: usize> Protocol<T, N> {
     }
 }
 
-impl Display for Property {
+impl Display for HookId {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::BootImgAddress => write!(f, "boot.img temporary buffer address"),
+            Self::MtPartGenericRead => write!(f, "mt_part_generic_read"),
         }
     }
 }
@@ -220,9 +217,8 @@ impl Display for Message<'_> {
                 }
                 Ok(())
             }
-            Self::GetProperty(property) => write!(f, "Get property: {property}"),
             Self::Reset => write!(f, "Reset"),
-            Self::LKHook => write!(f, "Hook LK"),
+            Self::Hook(hook) => write!(f, "Hook: {hook}"),
             Self::Return => write!(f, "Jump to usbdl_handler"),
         }
     }
