@@ -7,6 +7,8 @@ SECTIONS
 {
     . = 0x0;
 
+    _image_start = 0x0;
+
     .text : {
         KEEP(*(.text.start))
         *(.text .text.*)
@@ -38,4 +40,6 @@ SECTIONS
         *(.bss .bss.*)
         _bss_end = .;
     }
+
+    _image_end = .;
 }
