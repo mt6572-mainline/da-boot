@@ -11,7 +11,7 @@ pub type Result<T> = core::result::Result<T, Error>;
 pub use da::hl::DA;
 pub use lk::hl::LK;
 
-pub(crate) trait LLParser: Decode<()> + Sized {
+pub trait LLParser: Decode<()> + Sized {
     type Error;
 
     fn parse(data: &[u8]) -> Result<Self> {
@@ -25,8 +25,9 @@ pub(crate) trait LLParser: Decode<()> + Sized {
     fn validate(&self) -> core::result::Result<(), Self::Error>;
 }
 
-pub(crate) trait HLParser<T: LLParser>: Sized {
+pub trait HLParser<T: LLParser>: Sized {
     fn parse(data: &[u8], position: usize, ll: T) -> Result<Self>;
+    fn as_ll(&self) -> Result<T>;
 }
 
 pub fn parse_da(data: &[u8]) -> Result<DA> {

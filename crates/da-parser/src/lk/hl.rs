@@ -3,15 +3,19 @@
 //! Intended for end use.
 use std::fmt::Display;
 
+use crate::{HLParser, LLParser, lk::ll};
+use derive_ctor::ctor;
 use getset::Getters;
 
-use crate::{HLParser, LLParser, lk::ll};
-
-#[derive(Debug, Getters)]
+#[derive(Debug, Getters, ctor)]
 pub struct LK {
     /// Load address
     #[getset(get = "pub")]
     load_address: u32,
+
+    /// Name
+    #[getset(get = "pub")]
+    name: String,
 
     /// Executable code
     #[getset(get = "pub")]
@@ -23,8 +27,18 @@ impl HLParser<ll::Header> for LK {
         ll.validate()?;
         Ok(Self {
             load_address: ll.load_address,
+            name: String::from_utf8_lossy(&ll.name).into_owned(),
             code: data[position..].to_vec(),
         })
+    }
+
+    fn as_ll(&self) -> crate::Result<ll::Header> {
+        ll::Header::try_new(
+            self.code.len() as u32,
+            &self.name,
+            Some(self.load_address),
+            0,
+        )
     }
 }
 

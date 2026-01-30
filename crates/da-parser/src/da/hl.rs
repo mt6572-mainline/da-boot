@@ -5,7 +5,7 @@ use std::{ffi::CStr, fmt::Display};
 
 use getset::{Getters, MutGetters};
 
-use crate::{HLParser, LLParser, Result, da::ll};
+use crate::{HLParser, LLParser, Result, da::ll, err::Error};
 
 #[derive(Debug, Getters, MutGetters)]
 pub struct DA {
@@ -33,6 +33,10 @@ impl HLParser<ll::Header> for DA {
                 })
                 .collect::<Result<Vec<_>>>()?,
         })
+    }
+
+    fn as_ll(&self) -> Result<ll::Header> {
+        Err(Error::Custom("TODO".into()))
     }
 }
 
@@ -108,6 +112,10 @@ impl HLParser<ll::Entry> for Entry {
                 })
                 .collect::<Result<Vec<_>>>()?,
         })
+    }
+
+    fn as_ll(&self) -> Result<ll::Entry> {
+        Err(Error::Custom("TODO".into()))
     }
 }
 
@@ -188,6 +196,10 @@ impl HLParser<ll::LoadRegion> for Region {
             signature_len: ll.sig_len,
             base: ll.base,
         })
+    }
+
+    fn as_ll(&self) -> Result<ll::LoadRegion> {
+        Err(Error::Custom("TODO".into()))
     }
 }
 

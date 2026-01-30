@@ -18,6 +18,12 @@ pub enum Error {
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 
+    #[error("CString creation error (from slice): {0}")]
+    CString(#[from] std::array::TryFromSliceError),
+
+    #[error("CString creation error (NUL): {0}")]
+    NulError(#[from] std::ffi::NulError),
+
     /// CStr decode error
     #[error("CStr decode error: {0}")]
     Cstr(#[from] std::ffi::FromBytesUntilNulError),
