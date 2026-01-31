@@ -1,2 +1,2 @@
 # da-protocol
-Helper for the `serialport` crate.
+Protocol to communicate with helper payload.

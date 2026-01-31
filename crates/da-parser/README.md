@@ -1,2 +1,2 @@
 # da-parser
-DA image parsing utility.
+DA/LK image parsing utility.

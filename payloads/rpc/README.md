@@ -1,1 +1,1 @@
-Generic payload for Preloader and BootROM mode.
+Generic self-relocating payload for Preloader and BootROM mode.
