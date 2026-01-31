@@ -65,7 +65,15 @@ pub fn run_rpc_preloader(soc: SoC, mut port: Port, command: CommandBoot) -> Resu
                 log!("Setting up LK hooks...");
                 protocol.send_message(Message::hook(HookId::MtPartGenericRead))?;
                 if !status!(protocol.read_response())?.is_ack() {
-                    return Err(Error::Custom("Error on enabling LK hooks".into()));
+                    return Err(Error::Custom(
+                        "Error on enabling mt_part_generic_read".into(),
+                    ));
+                }
+                protocol.send_message(Message::Hook(HookId::MbootAndroidCheckImgInfo))?;
+                if !status!(protocol.read_response())?.is_ack() {
+                    return Err(Error::Custom(
+                        "Error on enabling mboot_android_check_img_info".into(),
+                    ));
                 }
             }
         }
