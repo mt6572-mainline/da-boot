@@ -14,7 +14,7 @@ use interceptor::{Interceptor, c_function};
 use shared::{LK_BASE, PRELOADER_BASE, Serial, flush_cache, search, search_pattern, uart_print, uart_println};
 use simpleport::{SimpleRead, SimpleWrite};
 
-use crate::{hooks::BOOT_IMG, setup::is_bootrom};
+use crate::setup::is_bootrom;
 
 mod hooks;
 mod setup;
@@ -156,6 +156,11 @@ pub unsafe extern "C" fn main() -> ! {
                             } else {
                                 Response::nack(ProtocolError::NotFound(NotFoundError::MtPartGenericRead))
                             }
+                        },
+                        HookId::MbootAndroidCheckImgInfo => unsafe {
+                            //hooks::hooks::mboot_android_check_img_info::replace(0x80021CB4 | 1);
+                            uart_println!("replaced mboot_android_check_img_info");
+                            Response::ack()
                         },
                     },
                     Message::Return => unsafe {
