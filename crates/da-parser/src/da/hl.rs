@@ -174,7 +174,6 @@ impl<'a> Entry<'a> {
 #[derive(Debug, Getters, MutGetters)]
 pub struct Region<'a> {
     /// Region data
-    #[getset(get = "pub", get_mut = "pub")]
     data: Cow<'a, [u8]>,
 
     /// Signature size
@@ -239,5 +238,15 @@ impl<'a> Region<'a> {
         let full_signature = self.data.to_mut();
         let len = full_signature.len();
         &mut full_signature[len - self.signature_len as usize..]
+    }
+
+    /// Data
+    pub fn data(&self) -> &[u8] {
+        &self.data
+    }
+
+    /// Data
+    pub fn data_mut(&mut self) -> &mut [u8] {
+        self.data.to_mut()
     }
 }

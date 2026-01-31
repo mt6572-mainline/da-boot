@@ -18,7 +18,6 @@ pub struct LK<'a> {
     name: String,
 
     /// Executable code
-    #[getset(get = "pub")]
     code: Cow<'a, [u8]>,
 }
 
@@ -59,6 +58,16 @@ impl Display for LK<'_> {
 }
 
 impl LK<'_> {
+    /// Executable code
+    pub fn code(&self) -> &[u8] {
+        &self.code
+    }
+
+    /// Executable code
+    pub fn code_mut(&mut self) -> &mut [u8] {
+        self.code.to_mut()
+    }
+
     /// Determines if the LK load address is a dummy value
     #[must_use]
     pub fn is_dummy_load_address(&self) -> bool {
