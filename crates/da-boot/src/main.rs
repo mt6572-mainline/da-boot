@@ -162,7 +162,7 @@ impl BootArgument {
             log_enable: 1,
             dram_rank_num: 1,
             dram_rank_size: [0x20000000, 0, 0, 0],
-            boot_reason: 1,
+            boot_reason: 4,
             boot_time: 1337,
             ..Default::default()
         }
