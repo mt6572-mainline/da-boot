@@ -17,6 +17,8 @@ pub type Result<T> = core::result::Result<T, Error>;
 pub enum HookId {
     /// Allow booting boot.img or recovery.img from the RAM
     MtPartGenericRead,
+    /// Allow booting recovery.img as boot.img
+    MbootAndroidCheckImgInfo,
 }
 
 /// Protocol messages
@@ -190,6 +192,7 @@ impl Display for HookId {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::MtPartGenericRead => write!(f, "mt_part_generic_read"),
+            Self::MbootAndroidCheckImgInfo => write!(f, "mboot_android_check_img_info"),
         }
     }
 }
