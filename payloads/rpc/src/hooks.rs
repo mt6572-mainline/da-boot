@@ -39,4 +39,19 @@ pub mod hooks {
             ctx.r0 = ret;
         }
     }
+
+    hook! {
+        fn mboot_android_check_img_info(ctx: InvocationContext) {
+            let original = c_function!(fn(*const u8, *mut u8) -> i32, mboot_android_check_img_info::original() as usize | 1);
+            let name = ctx.r0 as *const u8;
+
+            let ret = unsafe { original(name, ctx.r1 as _) };
+            if ret < 0 {
+                ctx.r0 = unsafe { original(b"RECOVERY\0".as_ptr(), ctx.r1 as _) } as u32;
+                uart_println!("supplied recovery image, workaround applied");
+            } else {
+                ctx.r0 = ret as u32;
+            }
+        }
+    }
 }
