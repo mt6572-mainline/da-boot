@@ -18,7 +18,8 @@ use crate::{
 };
 
 pub fn run_da1(soc: SoC, mut port: Port, command: CommandDA) -> Result<()> {
-    let mut file = parse_da(&fs::read(command.da)?)?;
+    let data = fs::read(command.da)?;
+    let mut file = parse_da(&data)?;
     let da = file
         .hwcode_mut(soc.as_hwcode())
         .ok_or(Error::Custom("hwcode not found in the DA".into()))?;
