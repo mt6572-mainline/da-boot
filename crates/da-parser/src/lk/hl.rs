@@ -1,14 +1,14 @@
 //! High-level representation of the MediaTek LK structure
 //!
 //! Intended for end use.
-use std::fmt::Display;
+use std::{borrow::Cow, fmt::Display};
 
 use crate::{HLParser, LLParser, lk::ll};
 use derive_ctor::ctor;
 use getset::Getters;
 
 #[derive(Debug, Getters, ctor)]
-pub struct LK {
+pub struct LK<'a> {
     /// Load address
     #[getset(get = "pub")]
     load_address: u32,
@@ -19,16 +19,16 @@ pub struct LK {
 
     /// Executable code
     #[getset(get = "pub")]
-    code: Vec<u8>,
+    code: Cow<'a, [u8]>,
 }
 
-impl HLParser<ll::Header> for LK {
-    fn parse(data: &[u8], position: usize, ll: ll::Header) -> crate::Result<Self> {
+impl<'a> HLParser<'a, ll::Header> for LK<'a> {
+    fn parse(data: &'a [u8], position: usize, ll: ll::Header) -> crate::Result<Self> {
         ll.validate()?;
         Ok(Self {
             load_address: ll.load_address,
             name: String::from_utf8_lossy(&ll.name).into_owned(),
-            code: data[position..].to_vec(),
+            code: Cow::Borrowed(&data[position..]),
         })
     }
 
@@ -42,7 +42,7 @@ impl HLParser<ll::Header> for LK {
     }
 }
 
-impl Display for LK {
+impl Display for LK<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(
             f,
@@ -58,7 +58,7 @@ impl Display for LK {
     }
 }
 
-impl LK {
+impl LK<'_> {
     /// Determines if the LK load address is a dummy value
     #[must_use]
     pub fn is_dummy_load_address(&self) -> bool {

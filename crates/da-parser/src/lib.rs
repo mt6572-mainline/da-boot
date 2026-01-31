@@ -25,12 +25,12 @@ pub trait LLParser: Decode<()> + Sized {
     fn validate(&self) -> core::result::Result<(), Self::Error>;
 }
 
-pub trait HLParser<T: LLParser>: Sized {
-    fn parse(data: &[u8], position: usize, ll: T) -> Result<Self>;
+pub trait HLParser<'a, T: LLParser>: Sized {
+    fn parse(data: &'a [u8], position: usize, ll: T) -> Result<Self>;
     fn as_ll(&self) -> Result<T>;
 }
 
-pub fn parse_da(data: &[u8]) -> Result<DA> {
+pub fn parse_da<'a>(data: &'a [u8]) -> Result<DA<'a>> {
     DA::parse(
         data,
         size_of::<da::ll::Header>(),
@@ -38,7 +38,7 @@ pub fn parse_da(data: &[u8]) -> Result<DA> {
     )
 }
 
-pub fn parse_lk(data: &[u8]) -> Result<LK> {
+pub fn parse_lk<'a>(data: &'a [u8]) -> Result<LK<'a>> {
     LK::parse(
         data,
         size_of::<lk::ll::Header>(),

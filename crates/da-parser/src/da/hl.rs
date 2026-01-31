@@ -1,25 +1,25 @@
 //! High-level representation of the MediaTek DA structure
 //!
 //! Intended for end use.
-use std::{ffi::CStr, fmt::Display};
+use std::{borrow::Cow, ffi::CStr, fmt::Display};
 
 use getset::{Getters, MutGetters};
 
 use crate::{HLParser, LLParser, Result, da::ll, err::Error};
 
 #[derive(Debug, Getters, MutGetters)]
-pub struct DA {
+pub struct DA<'a> {
     /// Build ID
     #[getset(get = "pub", get_mut = "pub")]
     build_id: String,
 
     /// Entries per SoC
     #[getset(get = "pub", get_mut = "pub")]
-    entries: Vec<Entry>,
+    entries: Vec<Entry<'a>>,
 }
 
-impl HLParser<ll::Header> for DA {
-    fn parse(data: &[u8], position: usize, ll: ll::Header) -> Result<Self> {
+impl<'a> HLParser<'a, ll::Header> for DA<'a> {
+    fn parse(data: &'a [u8], position: usize, ll: ll::Header) -> Result<Self> {
         ll.validate()?;
         Ok(Self {
             build_id: CStr::from_bytes_until_nul(&ll.build_id)?
@@ -40,7 +40,7 @@ impl HLParser<ll::Header> for DA {
     }
 }
 
-impl Display for DA {
+impl Display for DA<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "Build ID: {}", self.build_id)?;
         writeln!(f, "Entries:")?;
@@ -58,22 +58,22 @@ impl Display for DA {
     }
 }
 
-impl DA {
+impl<'a> DA<'a> {
     /// Get DA entry by `hwcode`
     #[must_use]
-    pub fn hwcode(&self, hwcode: u16) -> Option<&Entry> {
+    pub fn hwcode(&self, hwcode: u16) -> Option<&Entry<'_>> {
         self.entries.iter().find(|e| e.hw_code == hwcode)
     }
 
     /// Get DA entry by `hwcode`
     #[must_use]
-    pub fn hwcode_mut(&mut self, hwcode: u16) -> Option<&mut Entry> {
+    pub fn hwcode_mut(&'a mut self, hwcode: u16) -> Option<&'a mut Entry<'a>> {
         self.entries.iter_mut().find(|e| e.hw_code == hwcode)
     }
 }
 
 #[derive(Debug, Getters, MutGetters)]
-pub struct Entry {
+pub struct Entry<'a> {
     /// SoC hwcode
     #[getset(get = "pub", get_mut = "pub")]
     hw_code: u16,
@@ -92,11 +92,11 @@ pub struct Entry {
 
     /// Regions
     #[getset(get = "pub", get_mut = "pub")]
-    regions: Vec<Region>,
+    regions: Vec<Region<'a>>,
 }
 
-impl HLParser<ll::Entry> for Entry {
-    fn parse(data: &[u8], position: usize, ll: ll::Entry) -> Result<Self> {
+impl<'a> HLParser<'a, ll::Entry> for Entry<'a> {
+    fn parse(data: &'a [u8], position: usize, ll: ll::Entry) -> Result<Self> {
         ll.validate()?;
         Ok(Self {
             hw_code: ll.hw_code,
@@ -119,7 +119,7 @@ impl HLParser<ll::Entry> for Entry {
     }
 }
 
-impl Display for Entry {
+impl Display for Entry<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "HW code: {:#06X}", self.hw_code)?;
         writeln!(f, "HW subcode: {:#06X}", self.hw_subcode)?;
@@ -145,37 +145,37 @@ impl Display for Entry {
     }
 }
 
-impl Entry {
+impl<'a> Entry<'a> {
     /// DA1 region
     #[must_use]
-    pub fn da1(&self) -> Option<&Region> {
+    pub fn da1(&self) -> Option<&Region<'_>> {
         self.regions.get(1)
     }
 
     /// DA1 region
     #[must_use]
-    pub fn da1_mut(&mut self) -> Option<&mut Region> {
+    pub fn da1_mut(&'a mut self) -> Option<&'a mut Region<'a>> {
         self.regions.get_mut(1)
     }
 
     /// DA2 region
     #[must_use]
-    pub fn da2(&self) -> Option<&Region> {
+    pub fn da2(&self) -> Option<&Region<'_>> {
         self.regions.get(2)
     }
 
     /// DA2 region
     #[must_use]
-    pub fn da2_mut(&mut self) -> Option<&mut Region> {
+    pub fn da2_mut(&'a mut self) -> Option<&'a mut Region<'a>> {
         self.regions.get_mut(2)
     }
 }
 
 #[derive(Debug, Getters, MutGetters)]
-pub struct Region {
+pub struct Region<'a> {
     /// Region data
     #[getset(get = "pub", get_mut = "pub")]
-    data: Vec<u8>,
+    data: Cow<'a, [u8]>,
 
     /// Signature size
     #[getset(get = "pub")]
@@ -186,13 +186,13 @@ pub struct Region {
     base: u32,
 }
 
-impl HLParser<ll::LoadRegion> for Region {
-    fn parse(data: &[u8], _position: usize, ll: ll::LoadRegion) -> Result<Self> {
+impl<'a> HLParser<'a, ll::LoadRegion> for Region<'a> {
+    fn parse(data: &'a [u8], _position: usize, ll: ll::LoadRegion) -> Result<Self> {
         ll.validate()?;
         let end = (ll.start + ll.len) as usize;
 
         Ok(Self {
-            data: data[ll.start as usize..end].to_vec(),
+            data: Cow::Borrowed(&data[ll.start as usize..end]),
             signature_len: ll.sig_len,
             base: ll.base,
         })
@@ -203,7 +203,7 @@ impl HLParser<ll::LoadRegion> for Region {
     }
 }
 
-impl Display for Region {
+impl Display for Region<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(
             f,
@@ -215,7 +215,7 @@ impl Display for Region {
     }
 }
 
-impl Region {
+impl<'a> Region<'a> {
     /// Executable code
     pub fn code(&self) -> &[u8] {
         let len = self.data.len();
@@ -224,8 +224,9 @@ impl Region {
 
     /// Executable code
     pub fn code_mut(&mut self) -> &mut [u8] {
-        let len = self.data.len();
-        &mut self.data[..len - self.signature_len as usize]
+        let full_data = self.data.to_mut();
+        let len = full_data.len();
+        &mut full_data[..len - self.signature_len as usize]
     }
 
     /// Signature
@@ -235,7 +236,8 @@ impl Region {
 
     /// Signature
     pub fn signature_mut(&mut self) -> &mut [u8] {
-        let len = self.data.len();
-        &mut self.data[len - self.signature_len as usize..]
+        let full_signature = self.data.to_mut();
+        let len = full_signature.len();
+        &mut full_signature[len - self.signature_len as usize..]
     }
 }
