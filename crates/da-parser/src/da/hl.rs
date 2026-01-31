@@ -67,7 +67,7 @@ impl<'a> DA<'a> {
 
     /// Get DA entry by `hwcode`
     #[must_use]
-    pub fn hwcode_mut(&'a mut self, hwcode: u16) -> Option<&'a mut Entry<'a>> {
+    pub fn hwcode_mut(&mut self, hwcode: u16) -> Option<&mut Entry<'a>> {
         self.entries.iter_mut().find(|e| e.hw_code == hwcode)
     }
 }
@@ -154,7 +154,7 @@ impl<'a> Entry<'a> {
 
     /// DA1 region
     #[must_use]
-    pub fn da1_mut(&'a mut self) -> Option<&'a mut Region<'a>> {
+    pub fn da1_mut(&mut self) -> Option<&mut Region<'a>> {
         self.regions.get_mut(1)
     }
 
@@ -166,7 +166,7 @@ impl<'a> Entry<'a> {
 
     /// DA2 region
     #[must_use]
-    pub fn da2_mut(&'a mut self) -> Option<&'a mut Region<'a>> {
+    pub fn da2_mut(&mut self) -> Option<&mut Region<'a>> {
         self.regions.get_mut(2)
     }
 }
