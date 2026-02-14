@@ -74,3 +74,9 @@ Crash to the BootROM mode, boot `preloader.bin`, then `lk.bin` in FASTBOOT mode:
 ```
 cargo r --release -p da-boot -- -c -p preloader.bin boot -i lk.bin -u 0x80020000 -j 0x80020000 -m lk --lk-mode fastboot
 ```
+
+## Credits
+- [kaeru](https://github.com/R0rt1z2/kaeru) - early C payload, macros
+- [frida-gum](https://github.com/frida/frida-gum) - interceptor idea
+- [yaxpeax-arm](https://github.com/iximeow/yaxpeax-arm) - very fast and nice diassembler
+- MediaTek - how you shouldn't do things :)
