@@ -1,0 +1,11 @@
+[package]
+name = "da-analyzer"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+memchr = "2.8.0"
+yaxpeax-arch = "0.3.2"
+yaxpeax-arm = "0.4.0"
+thiserror = { workspace = true }
+clap = { workspace = true }
