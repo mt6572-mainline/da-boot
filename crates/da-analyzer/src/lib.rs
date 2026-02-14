@@ -1,5 +1,4 @@
-use std::ops::RangeInclusive;
-
+use derive_ctor::ctor;
 use memchr::memmem;
 
 use crate::{disasm::disassemble_thumb, err::Error};
@@ -9,11 +8,28 @@ mod disasm;
 pub mod err;
 
 pub type Result<T> = core::result::Result<T, Error>;
-pub type Code = Vec<(Instruction, usize)>;
+
+#[derive(Debug, ctor)]
+pub struct Code {
+    instruction: Instruction,
+    offset: usize,
+}
+
+impl Code {
+    #[inline(always)]
+    pub fn instruction(&self) -> &Instruction {
+        &self.instruction
+    }
+
+    #[inline(always)]
+    pub fn offset(&self) -> usize {
+        self.offset
+    }
+}
 
 pub struct Analyzer<'a> {
     data: &'a [u8],
-    pub code: Code,
+    code: Vec<Code>,
 }
 
 impl<'a> Analyzer<'a> {
@@ -29,7 +45,7 @@ impl<'a> Analyzer<'a> {
         self.code
             .iter()
             .enumerate()
-            .find(|(_, (_, off))| *off == offset)
+            .find(|(_, inst)| inst.offset == offset)
             .map(|(i, _)| i)
     }
 
@@ -55,18 +71,18 @@ impl<'a> Analyzer<'a> {
             .ok_or(Error::NotFound)?;
 
         let range = string_offset - IMM12_MAX..string_offset + IMM12_MAX;
-        for (i, (inst, off)) in self.code.iter().enumerate() {
-            if !range.contains(&off) {
+        for (i, code) in self.code.iter().enumerate() {
+            if !range.contains(&code.offset) {
                 continue;
             }
 
-            match inst.opcode {
-                Opcode::ADR => match inst.operands[1] {
+            match code.instruction.opcode {
+                Opcode::ADR => match code.instruction.operands[1] {
                     Operand::Imm32(imm) => {
-                        let load = if *off > string_offset {
-                            *off - string_offset
+                        let load = if code.offset > string_offset {
+                            code.offset - string_offset
                         } else {
-                            string_offset - *off
+                            string_offset - code.offset
                         } - 2;
 
                         if imm == load as u32 {
@@ -82,21 +98,21 @@ impl<'a> Analyzer<'a> {
         Err(Error::NotFound)
     }
 
-    /// Get index range of the guessed function from `i` index in [start..=end] range.
+    /// Get iterator of instructions for the guessed function from `i` index in [start..=end] range.
     ///
     /// # Errors
     /// [Error::NotFound] if the offset mapping failed. It shouldn't be raised unless there's a bug
-    pub fn find_function_bounds(&self, i: usize) -> Result<RangeInclusive<usize>> {
+    pub fn find_function_bounds(&self, i: usize) -> Result<impl Iterator<Item = &Code>> {
         let mut start = 0;
         let mut end = 0;
 
-        for (inst, off) in self.code[..i].iter().rev() {
+        for code in self.code[..i].iter().rev() {
             // First PUSH opcode with LR is likely function start
-            if inst.opcode == Opcode::PUSH {
-                if let Operand::RegList(list) = inst.operands[0]
+            if code.instruction.opcode == Opcode::PUSH {
+                if let Operand::RegList(list) = code.instruction.operands[0]
                     && Self::list_has_lr(list)
                 {
-                    start = self.offset2idx(*off).ok_or(Error::NotFound)?;
+                    start = self.offset2idx(code.offset).ok_or(Error::NotFound)?;
                     break;
                 }
             }
@@ -105,26 +121,26 @@ impl<'a> Analyzer<'a> {
         // Now carefully walk until we find the very end of the function
         //
         // XXX: this is dumb decoder, we need a tail calls and simple flow-based matching here...
-        for (inst, off) in self.code[start..].iter() {
-            match inst.opcode {
+        for code in self.code[start..].iter() {
+            match code.instruction.opcode {
                 // POP {..., LR} or POP {..., PC}
                 //
                 // XXX: POP LR is not function end
                 Opcode::POP => {
-                    if let Operand::RegList(list) = inst.operands[0]
+                    if let Operand::RegList(list) = code.instruction.operands[0]
                         && (Self::list_has_lr(list) || Self::list_has_pc(list))
                     {
-                        end = self.offset2idx(*off).ok_or(Error::NotFound)?;
+                        end = self.offset2idx(code.offset).ok_or(Error::NotFound)?;
                         break;
                     }
                 }
 
                 // BX LR
                 Opcode::BX => {
-                    if let Operand::Reg(r) = inst.operands[0]
+                    if let Operand::Reg(r) = code.instruction.operands[0]
                         && r.number() == 14
                     {
-                        end = self.offset2idx(*off).ok_or(Error::NotFound)?;
+                        end = self.offset2idx(code.offset).ok_or(Error::NotFound)?;
                         break;
                     }
                 }
@@ -132,6 +148,6 @@ impl<'a> Analyzer<'a> {
             }
         }
 
-        Ok(start..=end)
+        Ok((start..=end).map(|i| &self.code[i]))
     }
 }

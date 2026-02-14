@@ -3,7 +3,7 @@ use yaxpeax_arm::armv7::{ARMv7, DecodeError, InstDecoder};
 
 use crate::Code;
 
-pub fn disassemble_thumb(data: &[u8]) -> Code {
+pub fn disassemble_thumb(data: &[u8]) -> Vec<Code> {
     let mut reader =
         ReaderBuilder::<<ARMv7 as Arch>::Address, <ARMv7 as Arch>::Word>::read_from(data);
 
@@ -17,7 +17,7 @@ pub fn disassemble_thumb(data: &[u8]) -> Code {
 
         match decode_res {
             Ok(inst) => {
-                vec.push((inst, address as usize));
+                vec.push(Code::new(inst, address as usize));
             }
             Err(e) => match e {
                 DecodeError::ExhaustedInput => break,

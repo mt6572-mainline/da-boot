@@ -23,7 +23,6 @@ fn main() {
 
     println!("guessed function code:");
     for i in analyzer.find_function_bounds(idx).unwrap() {
-        let (inst, off) = &analyzer.code[i];
-        println!("\t{:#x}: {}", off, inst);
+        println!("\t{:#x}: {}", i.offset(), i.instruction());
     }
 }

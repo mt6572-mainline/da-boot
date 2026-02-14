@@ -8,4 +8,5 @@ memchr = "2.8.0"
 yaxpeax-arch = "0.3.2"
 yaxpeax-arm = "0.4.0"
 thiserror = { workspace = true }
+derive-ctor = { workspace = true }
 clap = { workspace = true }
