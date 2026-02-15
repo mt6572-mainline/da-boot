@@ -18,7 +18,7 @@ fn main() {
     let cli = Cli::parse();
     let data = fs::read(cli.input).unwrap();
 
-    let analyzer = Analyzer::new(&data);
+    let analyzer = Analyzer::new_thumb(&data);
     let idx = analyzer.find_string_ref(&cli.s).unwrap();
 
     println!("guessed function code:");

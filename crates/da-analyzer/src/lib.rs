@@ -1,7 +1,10 @@
 use derive_ctor::ctor;
 use memchr::memmem;
 
-use crate::{disasm::disassemble_thumb, err::Error};
+use crate::{
+    disasm::{disassemble_arm, disassemble_thumb},
+    err::Error,
+};
 use yaxpeax_arm::armv7::{Instruction, Opcode, Operand};
 
 mod disasm;
@@ -33,10 +36,17 @@ pub struct Analyzer<'a> {
 }
 
 impl<'a> Analyzer<'a> {
-    pub fn new(data: &'a [u8]) -> Self {
+    pub fn new_thumb(data: &'a [u8]) -> Self {
         Self {
             data,
             code: disassemble_thumb(data),
+        }
+    }
+
+    pub fn new_arm(data: &'a [u8]) -> Self {
+        Self {
+            data,
+            code: disassemble_arm(data),
         }
     }
 
