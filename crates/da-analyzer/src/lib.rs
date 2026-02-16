@@ -1,16 +1,19 @@
 use derive_ctor::ctor;
 use memchr::memmem;
+use yaxpeax_arch::LengthedInstruction;
 
 use crate::{
     disasm::{disassemble_arm, disassemble_thumb},
     err::Error,
 };
-use yaxpeax_arm::armv7::{Instruction, Opcode, Operand};
+use yaxpeax_arm::armv7::{ConditionCode, Instruction, Opcode, Operand};
 
 mod disasm;
 pub mod err;
 
 pub type Result<T> = core::result::Result<T, Error>;
+
+pub use yaxpeax_arm;
 
 #[derive(Debug, ctor)]
 pub struct Code {
@@ -159,5 +162,59 @@ impl<'a> Analyzer<'a> {
         }
 
         Ok((start..=end).map(|i| &self.code[i]))
+    }
+
+    /// Get basic blocks in the given `range`
+    ///
+    /// # Errors
+    /// [Error::NotFound] if the offset mapping failed. It shouldn't be raised unless there's a bug
+    pub fn find_basic_blocks(
+        &self,
+        range: impl IntoIterator<Item = &'a Code>,
+    ) -> Result<Vec<&[Code]>> {
+        let mut starts = Vec::with_capacity(10);
+
+        for (i, code) in range.into_iter().enumerate() {
+            if i == 0 {
+                // Entry is always a block
+                starts.push(self.offset2idx(code.offset).ok_or(Error::NotFound)?);
+            }
+
+            match code.instruction.opcode {
+                Opcode::B => {
+                    if let Operand::BranchThumbOffset(target) = code.instruction.operands[0] {
+                        // XXX: for some reason unconditional jumps use + 4 for PC value
+                        // but conditional use instruction size
+                        //
+                        // XXX: report this bug to the upstream yaxpeax...
+                        let fixup = if code.instruction.condition == ConditionCode::AL {
+                            4
+                        } else {
+                            code.instruction.len().to_const() as usize
+                        };
+                        let pc = code.offset + fixup;
+                        let off = target << 1;
+
+                        let target = pc.checked_add_signed(off as isize).unwrap();
+                        starts.push(self.offset2idx(target).ok_or(Error::NotFound)?);
+                    }
+                }
+                Opcode::POP => {
+                    if let Operand::RegList(list) = code.instruction.operands[0]
+                        && Self::list_has_pc(list)
+                    {
+                        starts.push(self.offset2idx(code.offset).ok_or(Error::NotFound)?);
+                    }
+                }
+                _ => (),
+            }
+        }
+
+        starts.sort_unstable();
+        Ok(starts
+            .windows(2)
+            .map(|w| (w[0], w[1]))
+            .map(|(curr, next)| &self.code[curr..=next])
+            .collect())
     }
 }

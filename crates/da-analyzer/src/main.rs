@@ -25,4 +25,15 @@ fn main() {
     for i in analyzer.find_function_bounds(idx).unwrap() {
         println!("\t{:#x}: {}", i.offset(), i.instruction());
     }
+
+    println!("basic blocks:");
+    let blocks = analyzer
+        .find_basic_blocks(analyzer.find_function_bounds(idx).unwrap())
+        .unwrap();
+    for (i, block) in blocks.iter().enumerate() {
+        println!("block {i}:");
+        for i in block.iter() {
+            println!("\t{:#x}: {}", i.offset(), i.instruction());
+        }
+    }
 }
