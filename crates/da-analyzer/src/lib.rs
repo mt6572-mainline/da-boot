@@ -115,7 +115,7 @@ impl<'a> Analyzer<'a> {
     ///
     /// # Errors
     /// [Error::NotFound] if the offset mapping failed. It shouldn't be raised unless there's a bug
-    pub fn find_function_bounds(&self, i: usize) -> Result<impl Iterator<Item = &Code>> {
+    pub fn find_function_bounds(&self, i: usize) -> Result<&[Code]> {
         let mut start = 0;
         let mut end = 0;
 
@@ -161,7 +161,7 @@ impl<'a> Analyzer<'a> {
             }
         }
 
-        Ok((start..=end).map(|i| &self.code[i]))
+        self.code.get(start..=end).ok_or(Error::NotFound)
     }
 
     /// Get basic blocks in the given `range`
