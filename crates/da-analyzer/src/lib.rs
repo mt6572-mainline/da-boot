@@ -1,5 +1,6 @@
 use derive_ctor::ctor;
 use memchr::memmem;
+use yaxpeax_arch::LengthedInstruction;
 
 use crate::{
     disasm::{disassemble_arm, disassemble_thumb},
@@ -203,7 +204,12 @@ impl<'a> Analyzer<'a> {
                     if let Operand::RegList(list) = code.instruction.operands[0]
                         && Self::list_has_pc(list)
                     {
-                        starts.push(self.offset2idx(code.offset).ok_or(Error::NotFound)?);
+                        starts.push(
+                            self.offset2idx(
+                                code.offset + code.instruction.len().to_const() as usize,
+                            )
+                            .ok_or(Error::NotFound)?,
+                        );
                     }
                 }
                 _ => (),
@@ -214,7 +220,7 @@ impl<'a> Analyzer<'a> {
         Ok(starts
             .windows(2)
             .map(|w| (w[0], w[1]))
-            .map(|(curr, next)| &self.code[curr..=next])
+            .map(|(curr, next)| &self.code[curr..next])
             .collect())
     }
 }
