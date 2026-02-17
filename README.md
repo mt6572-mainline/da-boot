@@ -10,7 +10,7 @@ Boot bare-metal binaries as DA on MediaTek MT6572
 # Subprojects
 da-boot is modular enough to commonize code when need to.
 
-Fill an issue if you want to re-use da-boot parts in your project. Note that some parts (e.g. protocol, bare-metal payloads and so on) are tied to the da-boot, and may introduce breaking changes. However, generic enough™ parts (like interceptor or bump allocator) can be moved out from the da-boot.
+Fill an issue if you want to re-use da-boot parts in your project. Note that some parts (e.g. protocol, bare-metal payloads and so on) are tied to the da-boot, and may introduce breaking changes. However, generic enough™ parts (like analyzer, interceptor or bump allocator) can be moved out from the da-boot.
 
 ## Bare-metal side
 - [Very tiny bump allocator](./payloads/bump)
@@ -23,6 +23,7 @@ Fill an issue if you want to re-use da-boot parts in your project. Note that som
 - [proc-macro to generate communication with BootROM/Preloader/DA](./crates/da-boot-macros)
 - [DA, LK and (partial) preloader parser](./crates/da-parser)
 - [Preloader/DA static patcher](./crates/da-patcher)
+- [Code disassembler & flow analyzer](./crates/da-analyzer)
 
 ## Mixed (both host and bare-metal)
 - [da-boot's Protocol](./crates/da-protocol)
