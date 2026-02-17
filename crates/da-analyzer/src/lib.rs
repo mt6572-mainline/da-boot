@@ -54,6 +54,7 @@ impl<'a> Analyzer<'a> {
     }
 
     /// Map instruction offset to the index
+    #[inline(always)]
     fn offset2idx(&self, offset: usize) -> Option<usize> {
         self.code
             .iter()
@@ -63,11 +64,13 @@ impl<'a> Analyzer<'a> {
     }
 
     /// Does RegList have LR?
+    #[inline(always)]
     fn list_has_lr(list: u16) -> bool {
         list & (1 << 14) != 0
     }
 
     /// Does RegList have PC?
+    #[inline(always)]
     fn list_has_pc(list: u16) -> bool {
         list & (1 << 15) != 0
     }
