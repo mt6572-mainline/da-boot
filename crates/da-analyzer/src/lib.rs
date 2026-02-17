@@ -33,6 +33,50 @@ impl Code {
     }
 }
 
+/// IR struct for basic block detection
+struct BasicBlock {
+    start: usize,
+    end: usize,
+}
+
+impl BasicBlock {
+    pub fn new(start: usize, end: usize) -> Self {
+        Self { start, end }
+    }
+}
+
+impl PartialEq for BasicBlock {
+    fn eq(&self, other: &Self) -> bool {
+        self.start == other.start
+    }
+}
+
+impl Eq for BasicBlock {}
+
+impl PartialOrd for BasicBlock {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        if self.start > other.start {
+            Some(std::cmp::Ordering::Greater)
+        } else if self.start == other.start {
+            Some(std::cmp::Ordering::Equal)
+        } else {
+            Some(std::cmp::Ordering::Less)
+        }
+    }
+}
+
+impl Ord for BasicBlock {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        if self.start > other.start {
+            std::cmp::Ordering::Greater
+        } else if self.start == other.start {
+            std::cmp::Ordering::Equal
+        } else {
+            std::cmp::Ordering::Less
+        }
+    }
+}
+
 pub struct Analyzer<'a> {
     data: &'a [u8],
     code: Vec<Code>,
@@ -104,13 +148,13 @@ impl<'a> Analyzer<'a> {
     /// Get index of the instruction containing reference to the string
     ///
     /// # Errors
-    /// [Error::NotFound] if the imm12 range is exhausted
+    /// [Error::MapOffsetToIndex] if the imm12 range is exhausted
     pub fn find_string_ref(&self, s: &str) -> Result<usize> {
         const IMM12_MAX: usize = 0x7ff; // signed
 
         let string_offset = memmem::find_iter(self.data, s.as_bytes())
             .next()
-            .ok_or(Error::NotFound)?;
+            .ok_or(Error::MapOffsetToIndex)?;
 
         let range = string_offset - IMM12_MAX..string_offset + IMM12_MAX;
         for (i, code) in self.code.iter().enumerate() {
@@ -137,123 +181,147 @@ impl<'a> Analyzer<'a> {
             }
         }
 
-        Err(Error::NotFound)
+        Err(Error::MapOffsetToIndex)
     }
 
-    /// Get iterator of instructions for the guessed function from `i` index in [start..=end] range.
+    /// Find all basic blocks beloging to the function at the `i` index
     ///
     /// # Errors
-    /// [Error::NotFound] if the offset mapping failed. It shouldn't be raised unless there's a bug
-    pub fn find_function_bounds(&self, i: usize) -> Result<&[Code]> {
+    /// Generally they shouldn't happen unless there's a bug in the analyzer
+    /// - [Error::MapOffsetToIndex] if offset mapping failed
+    /// - [Error::InvalidBlockIndex] queue and actual blocks lengths don't match
+    /// - [Error::Overrun] analyzer got out of bounds of the current function due to block split failure
+    /// - [Error::PCOverflow] PC fixup failed
+    pub fn analyze_function(&self, i: usize) -> Result<Vec<&[Code]>> {
         let mut start = 0;
-        let mut end = 0;
 
         for code in self.code[..i].iter().rev() {
             if Self::is_prologue(code) {
-                start = self.offset2idx(code.offset).ok_or(Error::NotFound)?;
+                start = self
+                    .offset2idx(code.offset)
+                    .ok_or(Error::MapOffsetToIndex)?;
                 break;
             }
         }
 
-        // Now carefully walk until we find the very end of the function
-        //
-        // XXX: this is dumb decoder, we need a tail calls and simple flow-based matching here...
-        for code in self.code[start..].iter() {
-            let idx = self.offset2idx(code.offset).ok_or(Error::NotFound)?;
-            if Self::is_prologue(code) && start != idx {
-                // STOP
-                //
-                // we already missed function end, set end to the previous valid instruction
-                //
-                // XXX: ideally we should raise analyzer error
-                end = idx - 1;
-                break;
-            }
+        let mut queue = vec![start];
+        let mut blocks = vec![BasicBlock::new(start, self.code.len())];
 
-            match code.instruction.opcode {
-                // POP {..., LR} or POP {..., PC}
-                //
-                // XXX: POP LR is not function end
-                Opcode::POP => {
-                    if let Operand::RegList(list) = code.instruction.operands[0]
-                        && Self::list_has_pc(list)
-                    {
-                        end = idx;
-                        break;
-                    }
+        while let Some(code_start) = queue.pop() {
+            let block_idx = match blocks.iter().position(|b| b.start == code_start) {
+                Some(v) => v,
+                None => return Err(Error::InvalidBlockIndex),
+            };
+
+            for code in self.code[code_start..].iter() {
+                let idx = self
+                    .offset2idx(code.offset)
+                    .ok_or(Error::MapOffsetToIndex)?;
+
+                if idx > code_start && blocks.iter().any(|b| b.start == idx) {
+                    // truncate block
+                    blocks[block_idx].end = idx - 1;
+                    break;
                 }
 
-                // BX LR
-                Opcode::BX => {
-                    if let Operand::Reg(r) = code.instruction.operands[0]
-                        && r.number() == 14
-                    {
-                        end = idx;
-                        break;
-                    }
+                if idx > start && Self::is_prologue(code) {
+                    return Err(Error::Overrun);
                 }
-                _ => (),
+
+                match code.instruction.opcode {
+                    Opcode::B => {
+                        if let Operand::BranchThumbOffset(target) = code.instruction.operands[0] {
+                            // XXX: unconditional jumps use + 4 for PC value as per ARM spec,
+                            // but conditional use + 2 due to +1 in the yaxpeax code, which
+                            // becomes 2 after shifting. See https://github.com/iximeow/yaxpeax-arm/blob/5803a74b89cfc986f26b01f607bcfedd7bcbcf68/src/armv7/thumb.rs#L4186
+                            let fixup = if code.instruction.condition == ConditionCode::AL {
+                                4
+                            } else {
+                                code.instruction.len().to_const() as usize
+                            };
+                            let pc = code.offset + fixup;
+                            let off = target << 1;
+
+                            let target = self
+                                .offset2idx(
+                                    pc.checked_add_signed(off as isize)
+                                        .ok_or(Error::PCOverflow)?,
+                                )
+                                .ok_or(Error::MapOffsetToIndex)?;
+
+                            let block_start = blocks[block_idx].start;
+                            // blocks can't have the same end, fixup the previous one to point to the correct end
+                            if let Some(fixup_block) = blocks.iter_mut().find(|b| b.end == idx) {
+                                fixup_block.end = block_start;
+                            }
+
+                            // current block ends where first branch starts
+                            blocks[block_idx].end = idx;
+
+                            // let's see what the target says
+                            //
+                            // 5 is usually enough for stack frame fixup and other stuff function might do
+                            // if it's external call, then it should have PUSH {LR}
+                            //
+                            // internal branches never (well, i've never seen that) have PUSH {LR}
+                            //
+                            // XXX: walk until first B is found, to ensure the PUSH is not somewhere deeper
+                            let is_tail_call = code.instruction.condition == ConditionCode::AL
+                                && self.code[target..target + 5]
+                                    .iter()
+                                    .any(|code| Self::is_prologue(code));
+                            if is_tail_call {
+                                break;
+                            }
+
+                            // target is already existing block? skip
+                            if !blocks.iter().any(|b| b.start == target) {
+                                queue.push(target);
+                                blocks.push(BasicBlock::new(target, self.code.len()));
+
+                                if code.instruction.condition != ConditionCode::AL {
+                                    queue.push(idx + 1);
+                                    blocks.push(BasicBlock::new(idx + 1, self.code.len()));
+                                }
+                            }
+
+                            // the block is already ended, remember?
+                            break;
+                        }
+                    }
+
+                    Opcode::POP => {
+                        if Self::is_epilogue(code) {
+                            blocks[block_idx].end = idx;
+                            break;
+                        }
+                    }
+
+                    Opcode::BX => {
+                        if let Operand::Reg(r) = code.instruction.operands[0]
+                            && r.number() == 14
+                        {
+                            blocks[block_idx].end = idx;
+                            break;
+                        }
+                    }
+
+                    _ => (),
+                }
             }
         }
 
-        self.code.get(start..=end).ok_or(Error::NotFound)
-    }
+        blocks.sort_unstable();
 
-    /// Get basic blocks in the given `range`
-    ///
-    /// # Errors
-    /// [Error::NotFound] if the offset mapping failed. It shouldn't be raised unless there's a bug
-    pub fn find_basic_blocks(
-        &self,
-        range: impl IntoIterator<Item = &'a Code>,
-    ) -> Result<Vec<&[Code]>> {
-        let mut starts = Vec::with_capacity(10);
+        // check if all blocks have valid end address
+        assert!(!blocks.iter().any(|b| b.end == self.code.len()));
 
-        for (i, code) in range.into_iter().enumerate() {
-            if i == 0 {
-                // Entry is always a block
-                starts.push(self.offset2idx(code.offset).ok_or(Error::NotFound)?);
-            }
+        assert!(blocks.len() > 0);
+        assert_eq!(queue.len(), 0);
 
-            match code.instruction.opcode {
-                Opcode::B => {
-                    if let Operand::BranchThumbOffset(target) = code.instruction.operands[0] {
-                        // XXX: unconditional jumps use + 4 for PC value as per ARM spec,
-                        // but conditional use + 2 due to +1 in the yaxpeax code, which
-                        // becomes 2 after shifting. See https://github.com/iximeow/yaxpeax-arm/blob/5803a74b89cfc986f26b01f607bcfedd7bcbcf68/src/armv7/thumb.rs#L4186
-                        //
-                        // XXX: report this bug to the upstream yaxpeax...
-                        let fixup = if code.instruction.condition == ConditionCode::AL {
-                            4
-                        } else {
-                            2
-                        };
-                        let pc = code.offset + fixup;
-                        let off = target << 1;
-
-                        let target = pc.checked_add_signed(off as isize).unwrap();
-                        starts.push(self.offset2idx(target).ok_or(Error::NotFound)?);
-                    }
-                }
-                Opcode::POP => {
-                    if Self::is_epilogue(code) {
-                        starts.push(
-                            self.offset2idx(
-                                code.offset + code.instruction.len().to_const() as usize,
-                            )
-                            .ok_or(Error::NotFound)?,
-                        );
-                    }
-                }
-                _ => (),
-            }
-        }
-
-        starts.sort_unstable();
-        Ok(starts
-            .windows(2)
-            .map(|w| (w[0], w[1]))
-            .map(|(curr, next)| &self.code[curr..next])
+        Ok(blocks
+            .into_iter()
+            .map(|b| &self.code[b.start..=b.end])
             .collect())
     }
 }

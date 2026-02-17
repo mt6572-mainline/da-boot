@@ -21,15 +21,8 @@ fn main() {
     let analyzer = Analyzer::new_thumb(&data);
     let idx = analyzer.find_string_ref(&cli.s).unwrap();
 
-    let fn_code = analyzer.find_function_bounds(idx).unwrap();
-    println!("guessed function code:");
-    for i in fn_code {
-        println!("\t{:#x}: {}", i.offset(), i.instruction());
-    }
-
     println!("basic blocks:");
-    let blocks = analyzer.find_basic_blocks(fn_code).unwrap();
-    for (i, block) in blocks.iter().enumerate() {
+    for (i, block) in analyzer.analyze_function(idx).unwrap().iter().enumerate() {
         println!("block {i}:");
         for i in block.iter() {
             println!("\t{:#x}: {}", i.offset(), i.instruction());
