@@ -75,6 +75,32 @@ impl<'a> Analyzer<'a> {
         list & (1 << 15) != 0
     }
 
+    /// Does this instruction look like function start?
+    #[inline(always)]
+    fn is_prologue(code: &Code) -> bool {
+        if let Operand::RegList(list) = code.instruction.operands[0]
+            && code.instruction.opcode == Opcode::PUSH
+            && Self::list_has_lr(list)
+        {
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Does this instruction look like function end?
+    #[inline(always)]
+    fn is_epilogue(code: &Code) -> bool {
+        if let Operand::RegList(list) = code.instruction.operands[0]
+            && code.instruction.opcode == Opcode::POP
+            && Self::list_has_pc(list)
+        {
+            true
+        } else {
+            false
+        }
+    }
+
     /// Get index of the instruction containing reference to the string
     ///
     /// # Errors
@@ -123,14 +149,9 @@ impl<'a> Analyzer<'a> {
         let mut end = 0;
 
         for code in self.code[..i].iter().rev() {
-            // First PUSH opcode with LR is likely function start
-            if code.instruction.opcode == Opcode::PUSH {
-                if let Operand::RegList(list) = code.instruction.operands[0]
-                    && Self::list_has_lr(list)
-                {
-                    start = self.offset2idx(code.offset).ok_or(Error::NotFound)?;
-                    break;
-                }
+            if Self::is_prologue(code) {
+                start = self.offset2idx(code.offset).ok_or(Error::NotFound)?;
+                break;
             }
         }
 
@@ -138,15 +159,26 @@ impl<'a> Analyzer<'a> {
         //
         // XXX: this is dumb decoder, we need a tail calls and simple flow-based matching here...
         for code in self.code[start..].iter() {
+            let idx = self.offset2idx(code.offset).ok_or(Error::NotFound)?;
+            if Self::is_prologue(code) && start != idx {
+                // STOP
+                //
+                // we already missed function end, set end to the previous valid instruction
+                //
+                // XXX: ideally we should raise analyzer error
+                end = idx - 1;
+                break;
+            }
+
             match code.instruction.opcode {
                 // POP {..., LR} or POP {..., PC}
                 //
                 // XXX: POP LR is not function end
                 Opcode::POP => {
                     if let Operand::RegList(list) = code.instruction.operands[0]
-                        && (Self::list_has_lr(list) || Self::list_has_pc(list))
+                        && Self::list_has_pc(list)
                     {
-                        end = self.offset2idx(code.offset).ok_or(Error::NotFound)?;
+                        end = idx;
                         break;
                     }
                 }
@@ -156,7 +188,7 @@ impl<'a> Analyzer<'a> {
                     if let Operand::Reg(r) = code.instruction.operands[0]
                         && r.number() == 14
                     {
-                        end = self.offset2idx(code.offset).ok_or(Error::NotFound)?;
+                        end = idx;
                         break;
                     }
                 }
@@ -204,9 +236,7 @@ impl<'a> Analyzer<'a> {
                     }
                 }
                 Opcode::POP => {
-                    if let Operand::RegList(list) = code.instruction.operands[0]
-                        && Self::list_has_pc(list)
-                    {
+                    if Self::is_epilogue(code) {
                         starts.push(
                             self.offset2idx(
                                 code.offset + code.instruction.len().to_const() as usize,
