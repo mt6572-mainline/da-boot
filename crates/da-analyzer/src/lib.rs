@@ -157,7 +157,7 @@ impl<'a> Analyzer<'a> {
 
         let string_offset = memmem::find_iter(self.data, s.as_bytes())
             .next()
-            .ok_or(Error::MapOffsetToIndex)?;
+            .ok_or(Error::StringNotFound)?;
 
         let range = string_offset - IMM12_MAX..string_offset + IMM12_MAX;
         for (i, code) in self.code.iter().enumerate() {
@@ -202,7 +202,7 @@ impl<'a> Analyzer<'a> {
             }
         }
 
-        Err(Error::MapOffsetToIndex)
+        Err(Error::StringReferenceNotFound)
     }
 
     /// Find all basic blocks beloging to the function at the `i` index
