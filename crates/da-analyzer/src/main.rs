@@ -28,7 +28,7 @@ fn main() {
     println!("basic blocks:");
     for (i, block) in analyzer.analyze_function(idx).unwrap().iter().enumerate() {
         println!("block {i}:");
-        for i in block.iter() {
+        for i in block.code().iter() {
             println!("\t{:#x}: {}", i.offset(), i.instruction());
         }
     }

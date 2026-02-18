@@ -1,3 +1,5 @@
+use std::ops::RangeInclusive;
+
 use derive_ctor::ctor;
 use memchr::memmem;
 use yaxpeax_arch::LengthedInstruction;
@@ -34,26 +36,26 @@ impl Code {
 }
 
 /// IR struct for basic block detection
-struct BasicBlock {
+struct BasicBlockRange {
     start: usize,
     end: usize,
 }
 
-impl BasicBlock {
+impl BasicBlockRange {
     pub fn new(start: usize, end: usize) -> Self {
         Self { start, end }
     }
 }
 
-impl PartialEq for BasicBlock {
+impl PartialEq for BasicBlockRange {
     fn eq(&self, other: &Self) -> bool {
         self.start == other.start
     }
 }
 
-impl Eq for BasicBlock {}
+impl Eq for BasicBlockRange {}
 
-impl PartialOrd for BasicBlock {
+impl PartialOrd for BasicBlockRange {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         if self.start > other.start {
             Some(std::cmp::Ordering::Greater)
@@ -65,7 +67,7 @@ impl PartialOrd for BasicBlock {
     }
 }
 
-impl Ord for BasicBlock {
+impl Ord for BasicBlockRange {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         if self.start > other.start {
             std::cmp::Ordering::Greater
@@ -74,6 +76,22 @@ impl Ord for BasicBlock {
         } else {
             std::cmp::Ordering::Less
         }
+    }
+}
+
+#[derive(Debug)]
+pub struct BasicBlock<'a> {
+    range: RangeInclusive<usize>,
+    code: &'a [Code],
+}
+
+impl<'a> BasicBlock<'a> {
+    pub fn code(&self) -> &[Code] {
+        self.code
+    }
+
+    pub fn has_index(&self, i: usize) -> bool {
+        self.range.contains(&i)
     }
 }
 
@@ -213,7 +231,7 @@ impl<'a> Analyzer<'a> {
     /// - [Error::InvalidBlockIndex] queue and actual blocks lengths don't match
     /// - [Error::Overrun] analyzer got out of bounds of the current function due to block split failure
     /// - [Error::PCOverflow] PC fixup failed
-    pub fn analyze_function(&self, i: usize) -> Result<Vec<&[Code]>> {
+    pub fn analyze_function(&self, i: usize) -> Result<Vec<BasicBlock<'_>>> {
         let mut start = 0;
 
         for code in self.code[..i].iter().rev() {
@@ -226,7 +244,7 @@ impl<'a> Analyzer<'a> {
         }
 
         let mut queue = vec![start];
-        let mut blocks = vec![BasicBlock::new(start, self.code.len())];
+        let mut blocks = vec![BasicBlockRange::new(start, self.code.len())];
 
         while let Some(code_start) = queue.pop() {
             let block_idx = match blocks.iter().position(|b| b.start == code_start) {
@@ -307,14 +325,14 @@ impl<'a> Analyzer<'a> {
                             // target is already existing block? skip
                             if !blocks.iter().any(|b| b.start == target) {
                                 queue.push(target);
-                                blocks.push(BasicBlock::new(target, self.code.len()));
+                                blocks.push(BasicBlockRange::new(target, self.code.len()));
 
                                 // CBZ or CBNZ always have 2 blocks
                                 if code.instruction.condition != ConditionCode::AL || is_cbz_cbnz {
                                     // don't push duplicate blocks
                                     if !blocks.iter().any(|b| b.start == idx + 1) {
                                         queue.push(idx + 1);
-                                        blocks.push(BasicBlock::new(idx + 1, self.code.len()));
+                                        blocks.push(BasicBlockRange::new(idx + 1, self.code.len()));
                                     }
                                 }
                             }
@@ -355,7 +373,10 @@ impl<'a> Analyzer<'a> {
 
         Ok(blocks
             .into_iter()
-            .map(|b| &self.code[b.start..=b.end])
+            .map(|b| BasicBlock {
+                code: &self.code[b.start..=b.end],
+                range: b.start..=b.end,
+            })
             .collect())
     }
 }
