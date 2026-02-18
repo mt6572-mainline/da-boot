@@ -12,13 +12,17 @@ struct Cli {
     /// String to search for
     #[arg(short, long)]
     s: String,
+
+    /// Binary base address
+    #[arg(short, long)]
+    base: usize,
 }
 
 fn main() {
     let cli = Cli::parse();
     let data = fs::read(cli.input).unwrap();
 
-    let analyzer = Analyzer::new_thumb(&data);
+    let analyzer = Analyzer::new_thumb(&data, cli.base);
     let idx = analyzer.find_string_ref(&cli.s).unwrap();
 
     println!("basic blocks:");
