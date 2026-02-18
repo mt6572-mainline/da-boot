@@ -80,20 +80,23 @@ impl Ord for BasicBlock {
 pub struct Analyzer<'a> {
     data: &'a [u8],
     code: Vec<Code>,
+    base_address: usize,
 }
 
 impl<'a> Analyzer<'a> {
-    pub fn new_thumb(data: &'a [u8]) -> Self {
+    pub fn new_thumb(data: &'a [u8], base_address: usize) -> Self {
         Self {
             data,
             code: disassemble_thumb(data),
+            base_address: base_address,
         }
     }
 
-    pub fn new_arm(data: &'a [u8]) -> Self {
+    pub fn new_arm(data: &'a [u8], base_address: usize) -> Self {
         Self {
             data,
             code: disassemble_arm(data),
+            base_address: base_address,
         }
     }
 
@@ -165,18 +168,36 @@ impl<'a> Analyzer<'a> {
             match code.instruction.opcode {
                 Opcode::ADR => match code.instruction.operands[1] {
                     Operand::Imm32(imm) => {
-                        let load = if code.offset > string_offset {
+                        let load = (if code.offset > string_offset {
                             code.offset - string_offset
                         } else {
                             string_offset - code.offset
-                        } - 2;
+                        } - 2) as u32;
 
-                        if imm == load as u32 {
+                        if imm == load || imm == load - 2 {
                             return Ok(i);
                         }
                     }
-                    _ => unreachable!("unexpected operand"),
+                    _ => continue,
                 },
+                _ => (),
+            }
+        }
+
+        let ldr_pool = ((string_offset + self.base_address) as u32).to_le_bytes();
+        for (i, code) in self.code.iter().enumerate() {
+            match code.instruction.opcode {
+                Opcode::LDR => {
+                    if let Operand::RegDerefPreindexOffset(_, imm, _, _) =
+                        code.instruction.operands[1]
+                    {
+                        let pc = (code.offset + 4) & !3;
+                        let load = pc + imm as usize;
+                        if self.data[load..load + 4] == ldr_pool {
+                            return Ok(i);
+                        }
+                    }
+                }
                 _ => (),
             }
         }
@@ -229,8 +250,16 @@ impl<'a> Analyzer<'a> {
                 }
 
                 match code.instruction.opcode {
-                    Opcode::B => {
-                        if let Operand::BranchThumbOffset(target) = code.instruction.operands[0] {
+                    Opcode::B | Opcode::CBZ | Opcode::CBNZ => {
+                        let is_cbz_cbnz =
+                            matches!(code.instruction.opcode, Opcode::CBZ | Opcode::CBNZ);
+                        let target_op = if code.instruction.opcode == Opcode::B {
+                            code.instruction.operands[0]
+                        } else {
+                            code.instruction.operands[1]
+                        };
+
+                        if let Operand::BranchThumbOffset(target) = target_op {
                             // XXX: unconditional jumps use + 4 for PC value as per ARM spec,
                             // but conditional use + 2 due to +1 in the yaxpeax code, which
                             // becomes 2 after shifting. See https://github.com/iximeow/yaxpeax-arm/blob/5803a74b89cfc986f26b01f607bcfedd7bcbcf68/src/armv7/thumb.rs#L4186
@@ -279,9 +308,13 @@ impl<'a> Analyzer<'a> {
                                 queue.push(target);
                                 blocks.push(BasicBlock::new(target, self.code.len()));
 
-                                if code.instruction.condition != ConditionCode::AL {
-                                    queue.push(idx + 1);
-                                    blocks.push(BasicBlock::new(idx + 1, self.code.len()));
+                                // CBZ or CBNZ always have 2 blocks
+                                if code.instruction.condition != ConditionCode::AL || is_cbz_cbnz {
+                                    // don't push duplicate blocks
+                                    if !blocks.iter().any(|b| b.start == idx + 1) {
+                                        queue.push(idx + 1);
+                                        blocks.push(BasicBlock::new(idx + 1, self.code.len()));
+                                    }
                                 }
                             }
 
