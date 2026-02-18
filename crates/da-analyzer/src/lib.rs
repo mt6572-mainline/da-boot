@@ -296,9 +296,10 @@ impl<'a> Analyzer<'a> {
                             //
                             // XXX: walk until first B is found, to ensure the PUSH is not somewhere deeper
                             let is_tail_call = code.instruction.condition == ConditionCode::AL
-                                && self.code[target..target + 5]
-                                    .iter()
-                                    .any(|code| Self::is_prologue(code));
+                                && self.code[target..target + 5].iter().any(|code| {
+                                    Self::is_prologue(code)
+                                        && code.offset != self.code[start].offset
+                                });
                             if is_tail_call {
                                 break;
                             }
