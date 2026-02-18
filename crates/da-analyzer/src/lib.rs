@@ -95,25 +95,27 @@ impl<'a> BasicBlock<'a> {
     }
 }
 
-pub struct Analyzer<'a> {
-    data: &'a [u8],
+pub struct Analyzer {
+    data: Vec<u8>,
     code: Vec<Code>,
     base_address: usize,
 }
 
-impl<'a> Analyzer<'a> {
-    pub fn new_thumb(data: &'a [u8], base_address: usize) -> Self {
+impl Analyzer {
+    pub fn new_thumb(data: Vec<u8>, base_address: usize) -> Self {
+        let code = disassemble_thumb(&data);
         Self {
             data,
-            code: disassemble_thumb(data),
+            code,
             base_address: base_address,
         }
     }
 
-    pub fn new_arm(data: &'a [u8], base_address: usize) -> Self {
+    pub fn new_arm(data: Vec<u8>, base_address: usize) -> Self {
+        let code = disassemble_arm(&data);
         Self {
             data,
-            code: disassemble_arm(data),
+            code,
             base_address: base_address,
         }
     }
@@ -173,7 +175,7 @@ impl<'a> Analyzer<'a> {
     pub fn find_string_ref(&self, s: &str) -> Result<usize> {
         const IMM12_MAX: usize = 0x7ff; // signed
 
-        let string_offset = memmem::find_iter(self.data, s.as_bytes())
+        let string_offset = memmem::find_iter(&self.data, s.as_bytes())
             .next()
             .ok_or(Error::StringNotFound)?;
 

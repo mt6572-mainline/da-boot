@@ -22,7 +22,7 @@ fn main() {
     let cli = Cli::parse();
     let data = fs::read(cli.input).unwrap();
 
-    let analyzer = Analyzer::new_thumb(&data, cli.base);
+    let analyzer = Analyzer::new_thumb(data, cli.base);
     let idx = analyzer.find_string_ref(&cli.s).unwrap();
 
     println!("basic blocks:");
