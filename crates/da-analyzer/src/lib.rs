@@ -2,7 +2,6 @@ use std::ops::RangeInclusive;
 
 use derive_ctor::ctor;
 use memchr::memmem;
-use yaxpeax_arch::LengthedInstruction;
 
 use crate::{
     disasm::{disassemble_arm, disassemble_thumb},
@@ -280,20 +279,11 @@ impl Analyzer {
                         };
 
                         if let Operand::BranchThumbOffset(target) = target_op {
-                            // XXX: unconditional jumps use + 4 for PC value as per ARM spec,
-                            // but conditional use + 2 due to +1 in the yaxpeax code, which
-                            // becomes 2 after shifting. See https://github.com/iximeow/yaxpeax-arm/blob/5803a74b89cfc986f26b01f607bcfedd7bcbcf68/src/armv7/thumb.rs#L4186
-                            let fixup = if code.instruction.condition == ConditionCode::AL {
-                                4
-                            } else {
-                                code.instruction.len().to_const() as usize
-                            };
-                            let pc = code.offset + fixup;
-                            let off = target << 1;
+                            let pc = code.offset + 4;
 
                             let target = self
                                 .offset2idx(
-                                    pc.checked_add_signed(off as isize)
+                                    pc.checked_add_signed(target as isize)
                                         .ok_or(Error::PCOverflow)?,
                                 )
                                 .ok_or(Error::MapOffsetToIndex)?;
