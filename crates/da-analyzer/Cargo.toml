@@ -9,4 +9,4 @@ yaxpeax-arch = "0.3.2"
 thiserror = { workspace = true }
 derive-ctor = { workspace = true }
 clap = { workspace = true }
-yaxpeax-arm = { git = "https://github.com/rva3/yaxpeax-arm", branch = "armv7t-fixes", version = "0.4.0" }
+yaxpeax-arm = { git = "https://github.com/mt6572-mainline/yaxpeax-arm", branch = "da-boot", version = "0.4.0" }
