@@ -1,7 +1,7 @@
 use std::{fs, path::PathBuf};
 
 use clap::Parser;
-use da_analyzer::Analyzer;
+use da_analyzer::{Analyzer, cpu_mode::CpuMode};
 
 #[derive(Parser)]
 struct Cli {
@@ -22,14 +22,7 @@ fn main() {
     let cli = Cli::parse();
     let data = fs::read(cli.input).unwrap();
 
-    let analyzer = Analyzer::new_thumb(data, cli.base);
-    let idx = analyzer.find_string_ref(&cli.s).unwrap();
-
-    println!("basic blocks:");
-    for (i, block) in analyzer.analyze_function(idx).unwrap().iter().enumerate() {
-        println!("block {i}:");
-        for i in block.code().iter() {
-            println!("\t{:#x}: {}", i.offset(), i.instruction());
-        }
-    }
+    println!("analyzing code flow");
+    let analyzer = Analyzer::try_new(data, cli.base, CpuMode::Arm).unwrap();
+    dbg!(analyzer.find_string_ref(&cli.s));
 }
