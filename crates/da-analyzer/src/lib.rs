@@ -127,7 +127,7 @@ impl Analyzer {
                                             add.instruction.opcode == Opcode::ADD
                                                 && r_should_be_pc.is_pc()
                                                 && rt == r
-                                                && add.pc() + pool == off
+                                                && (add.pc() + pool) & !3 == off & !3 // XXX: uh oh
                                         } else {
                                             false
                                         }
