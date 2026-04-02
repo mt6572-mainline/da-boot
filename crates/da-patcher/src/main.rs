@@ -1,12 +1,17 @@
 use std::{fs, path::PathBuf};
 
 use clap::{Parser, ValueEnum};
+use clap_num::maybe_hex;
+use da_analyzer::Analyzer;
 use da_patcher::{
-    Assembler, Disassembler, Patch, PatchCollection, Result, da::DA, preloader::Preloader,
+    Assembler, Patch, Result,
+    da::{hash::Hash, uart_port::UartPort},
+    oneshot,
+    preloader::hw_check_battery::HwCheckBattery,
 };
 
 #[derive(Clone, ValueEnum)]
-enum Type {
+enum Mode {
     Preloader,
     DA,
 }
@@ -22,7 +27,22 @@ struct Cli {
 
     /// Binary type
     #[arg(short, long)]
-    ty: Type,
+    mode: Mode,
+
+    /// Base address
+    #[arg(short, long, value_parser=maybe_hex::<u32>)]
+    addr: u32,
+}
+
+pub fn print_oneshot<'a, T: Patch<'a>>(
+    asm: &'a Assembler,
+    analyzer: &'a Analyzer,
+    bytes: &mut [u8],
+) {
+    match oneshot::<T>(asm, analyzer, bytes) {
+        Ok(()) => println!("{} is patched", T::name()),
+        Err(e) => println!("{} is NOT patched: {e}", T::name()),
+    }
 }
 
 fn main() -> Result<()> {
@@ -30,24 +50,19 @@ fn main() -> Result<()> {
 
     let mut bytes = fs::read(cli.input)?;
     let asm = Assembler::try_new()?;
-    let disasm = Disassembler::try_new()?;
+    let analyzer = Analyzer::try_new(
+        bytes.clone(),
+        cli.addr as usize,
+        da_analyzer::cpu_mode::CpuMode::Arm,
+    )?;
 
-    match cli.ty {
-        Type::Preloader => {
-            for i in Preloader::all(&asm, &disasm) {
-                match i.patch(&mut bytes) {
-                    Ok(()) => println!("{}", i.on_success()),
-                    Err(e) => println!("{}: {}", i.on_failure(), e),
-                }
-            }
+    match cli.mode {
+        Mode::Preloader => {
+            print_oneshot::<HwCheckBattery>(&asm, &analyzer, &mut bytes);
         }
-        Type::DA => {
-            for i in DA::all(&asm, &disasm) {
-                match i.patch(&mut bytes) {
-                    Ok(()) => println!("{}", i.on_success()),
-                    Err(e) => println!("{}: {}", i.on_failure(), e),
-                }
-            }
+        Mode::DA => {
+            print_oneshot::<Hash>(&asm, &analyzer, &mut bytes);
+            print_oneshot::<UartPort>(&asm, &analyzer, &mut bytes);
         }
     }
 

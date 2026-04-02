@@ -2,14 +2,14 @@ use crate::{Assembler, Patch, PatchInformation, Result, err::Error};
 use da_analyzer::{Analyzer, yaxpeax_arm::armv7::Opcode};
 use derive_ctor::ctor;
 
-/// Disable hash check in the DA1
+/// Disable assert when reading SRAM or DRAM contents with the read32 command
 #[derive(ctor)]
-pub struct Hash<'a> {
+pub struct HwCheckBattery<'a> {
     assembler: &'a Assembler,
     analyzer: &'a Analyzer,
 }
 
-impl PatchInformation for Hash<'_> {
+impl PatchInformation for HwCheckBattery<'_> {
     fn mode() -> crate::PatchMode {
         crate::PatchMode::Thumb2
     }
@@ -19,7 +19,7 @@ impl PatchInformation for Hash<'_> {
     }
 }
 
-impl<'a> Patch<'a> for Hash<'a> {
+impl<'a> Patch<'a> for HwCheckBattery<'a> {
     fn new(assembler: &'a Assembler, analyzer: &'a Analyzer) -> Self {
         Self {
             assembler,
@@ -30,9 +30,10 @@ impl<'a> Patch<'a> for Hash<'a> {
     fn find(&self) -> Result<usize> {
         let (f, b_idx) = self
             .analyzer
-            .find_string_ref("Hash value mismatch! DA will Halt!")
+            .find_string_ref("No Battery")
             .ok_or(Error::PatternNotFound)?;
-        let target = f.blocks()[b_idx - 1]
+
+        let target = f.blocks()[b_idx]
             .code()
             .iter()
             .find(|code| code.instruction().opcode == Opcode::CMP)
@@ -41,7 +42,7 @@ impl<'a> Patch<'a> for Hash<'a> {
     }
 
     fn replacement(&self) -> &'static str {
-        "cmp r0, r0"
+        "cmp r0, r1"
     }
 
     fn patch(&self, bytes: &mut [u8]) -> Result<()> {
@@ -53,6 +54,6 @@ impl<'a> Patch<'a> for Hash<'a> {
     }
 
     fn name() -> &'static str {
-        "DA1 hash check"
+        "Preloader battery check"
     }
 }

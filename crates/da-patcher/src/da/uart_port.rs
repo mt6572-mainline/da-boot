@@ -1,13 +1,18 @@
-use crate::{Assembler, Disassembler, Patch, PatchCode, PatchInformation, Result, slice::replace};
+use crate::{Assembler, Patch, PatchInformation, Result, err::Error};
+use da_analyzer::{
+    Analyzer,
+    yaxpeax_arm::armv7::{Opcode, Operand},
+};
 use derive_ctor::ctor;
 
-/// Force uart0 port for DA logs
+/// Disable hash check in the DA1
 #[derive(ctor)]
 pub struct UartPort<'a> {
     assembler: &'a Assembler,
-    disassembler: &'a Disassembler<'a>,
+    analyzer: &'a Analyzer,
 }
 
+/// Force uart0 port for DA logs
 impl PatchInformation for UartPort<'_> {
     fn mode() -> crate::PatchMode {
         crate::PatchMode::Thumb2
@@ -18,40 +23,51 @@ impl PatchInformation for UartPort<'_> {
     }
 }
 
-impl PatchCode for UartPort<'_> {
-    fn assembler(&self) -> &Assembler {
-        self.assembler
+impl<'a> Patch<'a> for UartPort<'a> {
+    fn new(assembler: &'a Assembler, analyzer: &'a Analyzer) -> Self {
+        Self {
+            assembler,
+            analyzer,
+        }
     }
 
-    fn disassembler(&self) -> &Disassembler<'_> {
-        self.disassembler
-    }
-}
+    fn find(&self) -> Result<usize> {
+        let (f, b_idx) = self
+            .analyzer
+            .find_string_ref("Output Log To Uart %d")
+            .ok_or(Error::PatternNotFound)?;
 
-impl Patch for UartPort<'_> {
-    fn pattern(&self) -> &'static str {
-        "mov.w r2, #921600;\
-         mov r1, r4"
+        let target = f.blocks()[b_idx]
+            .code()
+            .iter()
+            .find(|code| {
+                let inst = code.instruction();
+                if let Operand::Imm32(imm) = inst.operands[1]
+                    && imm == 1
+                    && inst.opcode == Opcode::MOV
+                {
+                    true
+                } else {
+                    false
+                }
+            })
+            .ok_or(Error::PatternNotFound)?;
+        Ok(target.offset())
     }
 
-    fn offset(&self, bytes: &[u8]) -> Result<usize> {
-        self.search(bytes).map(|o| o.start() - (2 + 4))
-    }
-
-    fn replacement(&self, _bytes: &[u8]) -> Result<Vec<u8>> {
-        self.assembler.thumb2("mov.w r0, #0")
+    fn replacement(&self) -> &'static str {
+        "mov.w r0, #0"
     }
 
     fn patch(&self, bytes: &mut [u8]) -> Result<()> {
-        replace(bytes, self.offset(bytes)?, &self.replacement(bytes)?);
+        let start = self.find()?;
+        let replacement = self.assembler.thumb2(self.replacement())?;
+        bytes[start..start + replacement.len()].clone_from_slice(&replacement);
+
         Ok(())
     }
 
-    fn on_success(&self) -> &'static str {
-        "DA UART output is replaced"
-    }
-
-    fn on_failure(&self) -> &'static str {
-        "DA UART output is not replaced"
+    fn name() -> &'static str {
+        "DA UART output"
     }
 }

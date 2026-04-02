@@ -16,22 +16,17 @@ pub enum Error {
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 
-    #[cfg(feature = "gui")]
-    /// GUI error
-    #[error("eframe error: {0}")]
-    Eframe(#[from] eframe::Error),
-    /// `capstone` crate error
-    #[error("Capstone error: {0}")]
-    Capstone(#[from] capstone::Error),
+    /// `da-analyzer` crate error
+    #[error("da-analyzer error: {0}")]
+    Analyzer(#[from] da_analyzer::err::Error),
+
     /// `hexpatch_keystone` crate error
     #[error("Keystone error: {0}")]
     Keystone(hexpatch_keystone::Error),
     /// Parse int error
     #[error("Parse int error: {0}")]
     ParseIntError(#[from] std::num::ParseIntError),
-    // Regex error
-    #[error("Regex error: {0}")]
-    Regex(#[from] regex::Error),
+
     #[error("{0}")]
     /// Any other error
     Custom(#[from] Box<dyn std::error::Error>),
