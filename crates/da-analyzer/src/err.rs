@@ -15,4 +15,6 @@ pub enum Error {
     Overrun,
     #[error("BUG: PC overflowed the isize range")]
     PCOverflow,
+    #[error("BUG: No state for the code at {0:#x}")]
+    NoState(usize),
 }

@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     fmt::Display,
     ops::RangeInclusive,
 };
@@ -12,7 +12,7 @@ use crate::{
     cpu_mode::CpuMode,
     disasm::{disassemble_arm_oneshot, disassemble_thumb_oneshot},
     err::Error,
-    reg_analysis::RegWriteTracker,
+    reg_analysis::{RegWriteTracker, Value},
     regext::RegExt,
 };
 
@@ -20,12 +20,33 @@ use crate::{
 pub struct BasicBlock {
     range: RangeInclusive<usize>,
     code: Vec<Code>,
+    snapshot: [Value; 16],
     tail_call: bool,
 }
 
 impl BasicBlock {
     pub fn code(&self) -> &[Code] {
         &self.code
+    }
+
+    pub fn state_at(&self, target_offset: usize, base_address: usize) -> Option<RegWriteTracker> {
+        if !self.range.contains(&target_offset) {
+            return None;
+        }
+
+        let mut rwt = RegWriteTracker::from_regs(self.snapshot.clone());
+
+        for code in &self.code {
+            if code.offset() == target_offset {
+                // PC must be updated or bad things gonna happen
+                rwt.immediate(15, (base_address + code.pc()) as u32);
+                break;
+            }
+
+            rwt.step(code, base_address);
+        }
+
+        Some(rwt)
     }
 }
 
@@ -86,10 +107,8 @@ impl Function {
         }
     }
 
-    /// - data = global binary data
-    /// - start = offset to the first instruction of this function
-    /// - mode = arm/thumb mode, caller must determine it by BL/BLX and previous mode state
-    pub fn parse(data: &[u8], start: usize, mode: CpuMode) -> Result<Self> {
+    /// Analyze function
+    pub fn parse(data: &[u8], start: usize, base_address: usize, mode: CpuMode) -> Result<Self> {
         println!("start analysis for {:#x}", start);
         let mut fn_code: BTreeMap<usize, Code> = BTreeMap::new();
         let mut leaders: BTreeSet<usize> = BTreeSet::new();
@@ -122,7 +141,7 @@ impl Function {
                     }
                     Err(e) => Err(e)?,
                 };
-                //println!("{:#x}: {}", block_offset, code.instruction);
+                println!("{:#x}: {}", block_offset, code.instruction);
 
                 code.offset = block_offset;
                 let insn_len = code.instruction.len().to_const() as usize;
@@ -181,16 +200,14 @@ impl Function {
                         };
 
                         if is_tail_call {
-                            // Tail calls leave the function, do not queue the target.
                             end_of_block = true;
                         } else {
-                            // Target is a leader
                             leaders.insert(target_offset);
                             if !fn_code.contains_key(&target_offset) {
                                 queue.push(target_offset);
                             }
 
-                            // If conditional, the fallthrough is also a leader
+                            // unlike IDA/Ghidra we split this to 2 blocks, not 1
                             if code.instruction.condition != ConditionCode::AL || is_cbz_cbnz {
                                 leaders.insert(next_offset);
                                 if !fn_code.contains_key(&next_offset) {
@@ -215,8 +232,8 @@ impl Function {
                         if let Operand::Reg(rt) = code.instruction.operands[0]
                             && let Operand::RegDerefPreindexOffset(reg, imm, _, _) =
                                 code.instruction.operands[1]
-                            && rt.is_pc()
                             && reg.is_pc()
+                            && rt.is_pc()
                             && imm == { if mode == CpuMode::Arm { 4 } else { 0 } }
                         {
                             end_of_block = true;
@@ -235,9 +252,18 @@ impl Function {
         }
         println!("done, do pass 2");
 
-        // pass 2: split blocks
+        // pass 2: split blocks and extract edges for dataflow analysis
         let leader_vec: Vec<usize> = leaders.into_iter().collect();
-        let mut blocks = Vec::new();
+
+        struct BlockData {
+            start: usize,
+            range: RangeInclusive<usize>,
+            code: Vec<Code>,
+            tail_call: bool,
+            successors: Vec<usize>,
+        }
+
+        let mut blocks_data: BTreeMap<usize, BlockData> = BTreeMap::new();
 
         for i in 0..leader_vec.len() {
             let start_addr = leader_vec[i];
@@ -248,37 +274,94 @@ impl Function {
             }
 
             let end_limit = leader_vec.get(i + 1).copied().unwrap_or(usize::MAX);
-            let mut block_code = Vec::new();
+            let mut block_code = vec![];
             let mut curr_addr = start_addr;
             let mut tail_call = false;
+            let mut successors = vec![];
 
             while curr_addr < end_limit {
                 if let Some(code) = fn_code.get(&curr_addr) {
                     block_code.push(code.clone());
                     curr_addr += code.instruction.len().to_const() as usize;
 
-                    if code.instruction.opcode == Opcode::B
-                        && code.instruction.condition == ConditionCode::AL
-                    {
-                        let target_op = code.instruction.operands[0];
-                        let target = match target_op {
-                            Operand::BranchThumbOffset(target) => target,
-                            Operand::BranchOffset(target) => target,
-                            _ => unreachable!(),
-                        };
-                        let target_offset = code.pc().wrapping_add_signed(target as isize);
-                        let mut callee_offset = target_offset;
-                        let is_tail_call = (0..5).any(|_| {
-                            Self::disassemble_oneshot(&data[callee_offset..], mode).is_ok_and(|c| {
-                                let len = c.instruction.len().to_const() as usize;
-                                callee_offset += len;
-                                c.is_prologue() && c.offset != start
-                            })
-                        });
+                    let is_last_in_limit = curr_addr >= end_limit;
+                    let mut is_end_of_block = false;
 
-                        if is_tail_call {
-                            tail_call = true;
+                    match code.instruction.opcode {
+                        Opcode::B => {
+                            is_end_of_block = true;
+                            let target_op = code.instruction.operands[0];
+                            let target = match target_op {
+                                Operand::BranchThumbOffset(target) => target,
+                                Operand::BranchOffset(target) => target,
+                                _ => unreachable!(),
+                            };
+                            let target_offset = code.pc().wrapping_add_signed(target as isize);
+
+                            let mut callee_offset = target_offset;
+                            let is_tail_call = code.instruction.condition == ConditionCode::AL
+                                && (0..5).any(|_| {
+                                    Self::disassemble_oneshot(&data[callee_offset..], mode)
+                                        .is_ok_and(|c| {
+                                            let len = c.instruction.len().to_const() as usize;
+                                            callee_offset += len;
+                                            c.is_prologue() && c.offset != start
+                                        })
+                                });
+
+                            if is_tail_call {
+                                tail_call = true;
+                            } else {
+                                successors.push(target_offset);
+                                if code.instruction.condition != ConditionCode::AL {
+                                    successors.push(curr_addr); // Fallthrough branch condition
+                                }
+                            }
                         }
+                        Opcode::CBZ | Opcode::CBNZ => {
+                            is_end_of_block = true;
+                            let target_op = code.instruction.operands[1];
+                            let target = match target_op {
+                                Operand::BranchThumbOffset(target) => target,
+                                Operand::BranchOffset(target) => target,
+                                _ => unreachable!(),
+                            };
+                            let target_offset = code.pc().wrapping_add_signed(target as isize);
+                            successors.push(target_offset);
+                            successors.push(curr_addr); // Fallthrough branch condition
+                        }
+                        Opcode::POP => {
+                            if code.is_epilogue() {
+                                is_end_of_block = true;
+                            } else if is_last_in_limit {
+                                successors.push(curr_addr);
+                            }
+                        }
+                        Opcode::BX | Opcode::ERET => {
+                            is_end_of_block = true;
+                        }
+                        Opcode::LDR => {
+                            if let Operand::Reg(rt) = code.instruction.operands[0]
+                                && let Operand::RegDerefPreindexOffset(reg, imm, _, _) =
+                                    code.instruction.operands[1]
+                                && reg.is_pc()
+                                && rt.is_pc()
+                                && imm == { if mode == CpuMode::Arm { 4 } else { 0 } }
+                            {
+                                is_end_of_block = true;
+                            } else if is_last_in_limit {
+                                successors.push(curr_addr);
+                            }
+                        }
+                        _ => {
+                            if is_last_in_limit {
+                                successors.push(curr_addr);
+                            }
+                        }
+                    }
+
+                    if is_end_of_block {
+                        break;
                     }
                 } else {
                     break;
@@ -289,12 +372,74 @@ impl Function {
                 let first_offset = block_code.first().unwrap().offset;
                 let last_offset = block_code.last().unwrap().offset;
 
-                blocks.push(BasicBlock {
-                    range: first_offset..=last_offset,
-                    code: block_code,
-                    tail_call,
-                });
+                blocks_data.insert(
+                    start_addr,
+                    BlockData {
+                        start: start_addr,
+                        range: first_offset..=last_offset,
+                        code: block_code,
+                        tail_call,
+                        successors,
+                    },
+                );
             }
+        }
+
+        // pass 3: dataflow analysis
+        let mut in_states: BTreeMap<usize, Option<RegWriteTracker>> = BTreeMap::new();
+        for key in blocks_data.keys() {
+            in_states.insert(*key, None);
+        }
+
+        let mut list = VecDeque::new();
+        in_states.insert(start, Some(RegWriteTracker::new()));
+        list.push_back(start);
+
+        while let Some(block_addr) = list.pop_front() {
+            if let Some(block) = blocks_data.get(&block_addr) {
+                let mut rwt = in_states.get(&block_addr).unwrap().clone().unwrap();
+
+                // we don't know r0-r3 at the start
+                if block.start == start {
+                    rwt.call();
+                }
+
+                for code in &block.code {
+                    rwt.step(code, base_address);
+                    if block.tail_call && code.instruction.opcode == Opcode::B {
+                        rwt.call();
+                    }
+                }
+
+                for &successor in &block.successors {
+                    if let Some(maybe_state) = in_states.get_mut(&successor) {
+                        if let Some(state) = maybe_state {
+                            if state.merge(&rwt) {
+                                if !list.contains(&successor) {
+                                    list.push_back(successor);
+                                }
+                            }
+                        } else {
+                            *maybe_state = Some(rwt.clone());
+                            list.push_back(successor);
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut blocks = vec![];
+        for (_, bdata) in blocks_data {
+            let rwt = in_states
+                .remove(&bdata.start)
+                .flatten()
+                .unwrap_or_else(RegWriteTracker::new);
+            blocks.push(BasicBlock {
+                range: bdata.range,
+                code: bdata.code,
+                snapshot: rwt.snapshot(),
+                tail_call: bdata.tail_call,
+            });
         }
         println!("done");
 
@@ -307,6 +452,15 @@ impl Function {
 
     pub fn blocks(&self) -> &[BasicBlock] {
         &self.blocks
+    }
+
+    pub fn code(&self) -> impl DoubleEndedIterator<Item = &Code> {
+        self.blocks.iter().flat_map(|b| b.code())
+    }
+
+    pub fn state_at(&self, offset: usize, base_address: usize) -> Option<RegWriteTracker> {
+        let block = self.blocks.iter().find(|b| b.range.contains(&offset))?;
+        block.state_at(offset, base_address)
     }
 
     pub fn mode(&self) -> CpuMode {
@@ -332,41 +486,26 @@ impl FunctionAnalysis {
         let mut functions = Vec::with_capacity(100);
 
         queue.push(0);
-        functions.push(Function::parse(data, 0, entry_mode)?);
+        functions.push(Function::parse(data, 0, base_address, entry_mode)?);
 
         loop {
             if let Some(i) = queue.pop() {
                 let function = functions[i].clone();
                 let mode = function.mode;
 
-                let mut regs = RegWriteTracker::new();
                 for block in function.blocks {
                     for (j, code) in block.code.iter().enumerate() {
-                        regs.store(15, (base_address + code.pc()) as u32);
                         match code.instruction.opcode {
-                            Opcode::MOV => {
-                                if let Operand::Reg(r) = code.instruction.operands[0]
-                                    && let Operand::Imm32(imm) = code.instruction.operands[1]
-                                {
-                                    regs.store(r.number(), imm);
-                                }
-                            }
-                            Opcode::MOVT => {
-                                if let Operand::Reg(r) = code.instruction.operands[0]
-                                    && let Operand::Imm32(imm) = code.instruction.operands[1]
-                                {
-                                    regs.store(
-                                        r.number(),
-                                        regs.get(r.number()).unwrap_or(0) | imm >> 16,
-                                    );
-                                }
-                            }
-
                             Opcode::BX => {
                                 if let Operand::Reg(r) = code.instruction.operands[0]
                                     && !r.is_lr()
                                 {
-                                    if let Some(mut jump_addr) = regs.get(r.number()) {
+                                    let state = block
+                                        .state_at(code.offset(), base_address)
+                                        .ok_or(Error::NoState(code.offset))?;
+                                    if let Some(mut jump_addr) =
+                                        state.try_get_imm(r.number(), base_address, data)
+                                    {
                                         if jump_addr as usize >= base_address {
                                             jump_addr -= base_address as u32;
                                         } else {
@@ -376,7 +515,7 @@ impl FunctionAnalysis {
                                             );
                                             println!("regs:");
                                             for reg in 0..16 {
-                                                println!("{reg}: {:?}", regs.get(reg));
+                                                println!("{reg}: {:?}", state.get(reg));
                                             }
 
                                             continue;
@@ -402,7 +541,12 @@ impl FunctionAnalysis {
                                             continue;
                                         }
 
-                                        functions.push(Function::parse(data, jump_addr, mode)?);
+                                        functions.push(Function::parse(
+                                            data,
+                                            jump_addr,
+                                            base_address,
+                                            mode,
+                                        )?);
                                         queue.push(functions.len() - 1);
                                     } else {
                                         println!("{} reg is failed to track!", code.instruction);
@@ -417,7 +561,7 @@ impl FunctionAnalysis {
                                         }
                                         println!("regs:");
                                         for reg in 0..16 {
-                                            println!("{reg}: {:?}", regs.get(reg));
+                                            println!("{reg}: {:?}", state.get(reg));
                                         }
                                     }
                                 }
@@ -452,7 +596,12 @@ impl FunctionAnalysis {
                                         continue;
                                     }
 
-                                    functions.push(Function::parse(data, addr, mode)?);
+                                    functions.push(Function::parse(
+                                        data,
+                                        addr,
+                                        base_address,
+                                        mode,
+                                    )?);
                                     queue.push(functions.len() - 1);
                                 }
                             }
@@ -473,9 +622,6 @@ impl FunctionAnalysis {
                                     let addr = u32::from_le_bytes(
                                         data[start..start + 4].try_into().unwrap(),
                                     );
-
-                                    // XXX: do we want rel or abs addr?
-                                    regs.store(rt.number(), addr);
 
                                     if !(rt.is_pc()
                                         && imm == { if mode == CpuMode::Arm { 4 } else { 0 } })
@@ -500,7 +646,12 @@ impl FunctionAnalysis {
                                     }
 
                                     println!("do");
-                                    functions.push(Function::parse(data, addr, mode)?);
+                                    functions.push(Function::parse(
+                                        data,
+                                        addr,
+                                        base_address,
+                                        mode,
+                                    )?);
 
                                     queue.push(functions.len() - 1);
                                 }

@@ -5,6 +5,7 @@ use crate::{
     cpu_mode::CpuMode,
     err::Error,
     fn_analysis::{Function, FunctionAnalysis},
+    reg_analysis::RegWriteTracker,
     regext::{RegExt, RegListExt},
 };
 use yaxpeax_arm::armv7::{Instruction, Opcode, Operand};
@@ -13,8 +14,8 @@ pub mod cpu_mode;
 mod disasm;
 pub mod err;
 pub mod fn_analysis;
-pub(crate) mod reg_analysis;
-pub(crate) mod regext;
+pub mod reg_analysis;
+pub mod regext;
 
 pub type Result<T> = core::result::Result<T, Error>;
 
@@ -71,13 +72,27 @@ impl Code {
 
 pub struct Analyzer {
     data: Vec<u8>,
+    base_address: usize,
     f: FunctionAnalysis,
 }
 
 impl Analyzer {
     pub fn try_new(data: Vec<u8>, base_address: usize, entry_mode: CpuMode) -> Result<Self> {
         let f = FunctionAnalysis::analyze_from_entrypoint(&data, base_address, entry_mode)?;
-        Ok(Self { data, f })
+        println!("analysis finished: {} functions", f.fns.len());
+        Ok(Self {
+            data,
+            base_address,
+            f,
+        })
+    }
+
+    pub fn functions(&self) -> &[Function] {
+        &self.f.fns
+    }
+
+    pub fn state_at(&self, f: &Function, offset: usize) -> Option<RegWriteTracker> {
+        f.state_at(offset, self.base_address)
     }
 
     pub fn find_string_ref(&self, s: &str) -> Option<(&Function, usize)> {
