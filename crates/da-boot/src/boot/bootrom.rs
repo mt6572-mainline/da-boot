@@ -1,6 +1,5 @@
 use std::{fs, thread::sleep, time::Duration};
 
-use da_parser::preloader_header_size;
 use da_protocol::Message;
 use simpleport::Port;
 
@@ -8,12 +7,13 @@ use crate::{
     Context, DeviceMode, Result,
     boot::{
         preloader::{invalidate_ready, run_preloader},
-        rpc::{rpc_payload, start_rpc},
+        rpc::{
+            ext::HostExtensions,
+            selector::{rpc_payload, start_rpc},
+        },
     },
     err::Error,
-    handshake, log, open_port,
-    rpc::HostExtensions,
-    run_payload, status,
+    handshake, log, open_port, run_payload, status,
 };
 
 pub fn run_brom(mut state: Context, mut port: Port, device_mode: DeviceMode) -> Result<()> {
@@ -23,14 +23,7 @@ pub fn run_brom(mut state: Context, mut port: Port, device_mode: DeviceMode) -> 
     let mut protocol = start_rpc(port)?;
 
     let mut payload = if let Some(ref preloader) = state.cli.preloader {
-        let mut payload = fs::read(preloader)?;
-        let header = preloader_header_size(&payload).unwrap_or_else(|_| {
-            eprintln!("Preloader header detection failed, assuming raw binary");
-            0
-        });
-
-        payload.drain(0..header);
-        payload
+        fs::read(preloader)?
     } else {
         return Err(Error::Custom(
             "Preloader is required in the BROM mode, please specify preloader without header via -p option".into(),

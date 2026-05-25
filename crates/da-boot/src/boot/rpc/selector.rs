@@ -1,13 +1,12 @@
 use std::{borrow::Cow, fs};
 
-use da_parser::parse_lk;
 use da_protocol::{HookId, Message, Protocol};
 use da_soc::SoC;
 use simpleport::Port;
 
 use crate::{
-    BOOT_ARG_ADDR, BootArgument, BootMode, Context, Result, err::Error, log, repl::run_repl,
-    rpc::HostExtensions, run_payload, status,
+    BOOT_ARG_ADDR, BootArgument, BootMode, Context, Result, boot::rpc::ext::HostExtensions,
+    err::Error, log, repl::run_repl, run_payload, status,
 };
 
 pub fn run_rpc_preloader(context: Context, mut port: Port) -> Result<()> {
@@ -29,20 +28,8 @@ pub fn run_rpc_preloader(context: Context, mut port: Port) -> Result<()> {
         .enumerate()
     {
         if context.cli.mode.is_lk() && idx == 0 {
-            let lk = parse_lk(&payload);
-            let code = match lk {
-                Ok(ref lk) => {
-                    println!("\n{lk}");
-                    lk.code()
-                }
-                _ => {
-                    eprintln!("LK header detection failed, assuming raw binary");
-                    &payload
-                }
-            };
-
             log!("Uploading LK to {a:#x}...");
-            status!(protocol.upload(*a, code))?;
+            status!(protocol.upload(*a, &payload))?;
         } else {
             log!("Uploading payload to {a:#x}...");
             status!(protocol.upload(*a, &payload))?;

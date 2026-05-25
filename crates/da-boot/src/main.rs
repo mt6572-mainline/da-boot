@@ -29,7 +29,6 @@ mod commands;
 mod err;
 mod logging;
 mod repl;
-mod rpc;
 
 type Result<T> = core::result::Result<T, Error>;
 

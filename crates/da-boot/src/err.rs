@@ -20,9 +20,6 @@ pub enum Error {
     #[error("kaiko error: {0}")]
     DAAnalyzer(#[from] kaiko::err::Error),
 
-    /// da-parser error
-    #[error("da-parser error: {0}")]
-    DAParser(#[from] da_parser::err::Error),
     /// da-protocol error
     #[error("Protocol error: {0}")]
     DAProtocol(#[from] da_protocol::err::Error),

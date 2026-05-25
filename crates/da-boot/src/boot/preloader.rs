@@ -4,7 +4,7 @@ use simpleport::Port;
 
 use crate::{
     Context, DeviceMode, Result,
-    boot::{bootrom::run_brom, rpc::run_rpc_preloader},
+    boot::{bootrom::run_brom, rpc::selector::run_rpc_preloader},
     commands::preloader::Read32,
     err::Error,
     get_hwcode, handshake, log, open_port, status,
