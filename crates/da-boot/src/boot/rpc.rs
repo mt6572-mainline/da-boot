@@ -6,18 +6,18 @@ use da_soc::SoC;
 use simpleport::Port;
 
 use crate::{
-    BOOT_ARG_ADDR, BootArgument, CommandBoot, Mode, Result, err::Error, log, repl::run_repl,
+    BOOT_ARG_ADDR, BootArgument, BootMode, Context, Result, err::Error, log, repl::run_repl,
     rpc::HostExtensions, run_payload, status,
 };
 
-pub fn run_rpc_preloader(soc: SoC, mut port: Port, command: CommandBoot) -> Result<()> {
-    let da_addr = soc.da_dram_addr();
+pub fn run_rpc_preloader(context: Context, mut port: Port) -> Result<()> {
+    let da_addr = context.soc.da_dram_addr();
     run_payload(da_addr, &rpc_payload()?, &mut port)?;
 
     let mut protocol = start_rpc(port)?;
 
-    let mode = command.mode.unwrap_or_default();
-    let payloads = command
+    let payloads = context
+        .cli
         .input
         .into_iter()
         .map(|i| fs::read(i).map_err(|e| e.into()))
@@ -25,10 +25,10 @@ pub fn run_rpc_preloader(soc: SoC, mut port: Port, command: CommandBoot) -> Resu
 
     for (idx, (payload, a)) in payloads
         .iter()
-        .zip(command.upload_address.iter())
+        .zip(context.cli.upload_address.iter())
         .enumerate()
     {
-        if mode.is_lk() && idx == 0 {
+        if context.cli.mode.is_lk() && idx == 0 {
             let lk = parse_lk(&payload);
             let code = match lk {
                 Ok(ref lk) => {
@@ -49,19 +49,19 @@ pub fn run_rpc_preloader(soc: SoC, mut port: Port, command: CommandBoot) -> Resu
         }
     }
 
-    match mode {
-        Mode::Raw => (),
-        Mode::Lk => {
+    match context.cli.mode {
+        BootMode::BootROM | BootMode::Preloader => (),
+        BootMode::LK { mode } => {
             log!("Preparing boot argument for LK...");
             let payload = bincode::encode_to_vec(
-                BootArgument::lk(command.lk_mode.unwrap_or_default()),
+                BootArgument::lk(mode),
                 bincode::config::standard()
                     .with_little_endian()
                     .with_fixed_int_encoding(),
             )?;
             status!(protocol.upload(BOOT_ARG_ADDR, &payload))?;
 
-            if command.upload_address.len() > 1 {
+            if context.cli.upload_address.len() > 1 {
                 log!("Setting up LK hooks...");
                 protocol.send_message(Message::hook(HookId::MtPartGenericRead))?;
                 if !status!(protocol.read_response())?.is_ack() {
@@ -77,10 +77,10 @@ pub fn run_rpc_preloader(soc: SoC, mut port: Port, command: CommandBoot) -> Resu
                 }
             }
         }
-        Mode::REPL => return run_repl(protocol),
+        BootMode::REPL => return run_repl(protocol),
     }
 
-    let jump = command.jump_address.unwrap_or(da_addr);
+    let jump = context.cli.jump_address.unwrap_or(da_addr);
     log!("Jumping to {jump:#x}...");
     status!(protocol.send_message(Message::jump(jump, Some(BOOT_ARG_ADDR), Some(250))))?;
     if protocol.read_response().is_ok_and(|r| r.is_nack()) {

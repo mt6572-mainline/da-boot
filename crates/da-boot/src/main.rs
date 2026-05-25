@@ -1,3 +1,5 @@
+#![feature(try_find)]
+
 use std::{io::Write, path::PathBuf, thread::sleep, time::Duration};
 
 use bincode::Encode;
@@ -20,13 +22,11 @@ use crate::{
         preloader::{JumpDA, SendDA},
     },
     err::Error,
-    exploit::ExploitsDiscriminants,
 };
 
 mod boot;
 mod commands;
 mod err;
-mod exploit;
 mod logging;
 mod repl;
 mod rpc;
@@ -35,59 +35,28 @@ type Result<T> = core::result::Result<T, Error>;
 
 const BOOT_ARG_ADDR: u32 = 0x800d0000;
 
-#[derive(Clone, Default, ValueEnum, IsVariant)]
-#[clap(rename_all = "kebab_case")]
-enum Mode {
+#[derive(Clone, Default, PartialEq, Eq, IsVariant, Subcommand)]
+enum BootMode {
+    /// Run the binary after BootROM: BootROM -> payload -> your binary
+    ///
+    /// or the other way: BootROM -> Preloader -> crash -> BootROM -> payload -> your binary
+    ///
+    /// for U-Boot SPL/other SRAM-only binary testing
+    BootROM,
+    /// Run the binary after Preloader: BootROM -> Preloader -> payload -> your binary
+    ///
+    /// for U-Boot testing
     #[default]
-    Raw,
-    Lk,
+    Preloader,
+    /// Run the binary after LK: BootROM -> Preloader -> payload -> LK -> your binary
+    ///
+    /// for U-Boot chainloading
+    LK {
+        /// LK boot mode
+        mode: LkBootMode,
+    },
+    /// Stay in the payload in the REPL mode
     REPL,
-}
-
-/// Boot bare-metal binary, LK, or Android boot image
-#[derive(Parser)]
-struct CommandBoot {
-    /// Binaries to upload
-    #[arg(short, long, value_delimiter = ' ', num_args = 1..)]
-    input: Vec<PathBuf>,
-
-    /// Addresses for binaries
-    #[arg(short, long, value_delimiter = ' ', num_args = 1.., value_parser=maybe_hex::<u32>)]
-    upload_address: Vec<u32>,
-
-    /// Final jump address, jumps to DA1 DRAM address if not set
-    #[arg(short, long, value_parser=maybe_hex::<u32>)]
-    jump_address: Option<u32>,
-
-    /// Boot mode
-    #[arg(short, long)]
-    mode: Option<Mode>,
-
-    /// LK boot mode
-    #[arg(long)]
-    lk_mode: Option<LkBootMode>,
-}
-
-/// Boot DA
-#[derive(Parser)]
-struct CommandDA {
-    /// Path to DA file
-    #[arg(short, long)]
-    da: PathBuf,
-
-    /// Do not patch DA1 (or DA2, depends when exploit runs) if the preloader still checks for the DA hash, even without secure boot enabled.
-    #[arg(short, long)]
-    skip_patch: bool,
-
-    /// Use exploit if preloader requires signed DA1. Invoked automatically if the device has secure boot, defaults to the pumpkin (DA1 hash overwrite).
-    #[arg(long)]
-    exploit: Option<ExploitsDiscriminants>,
-}
-
-#[derive(Subcommand)]
-enum Command {
-    Boot(CommandBoot),
-    DA(CommandDA),
 }
 
 #[derive(Parser)]
@@ -105,11 +74,23 @@ struct Cli {
     #[arg(short, long)]
     preloader: Option<PathBuf>,
 
-    #[clap(subcommand)]
-    command: Command,
+    /// Binaries to upload
+    #[arg(short, long, value_delimiter = ' ', num_args = 1..)]
+    input: Vec<PathBuf>,
+
+    /// Addresses for binaries
+    #[arg(short, long, value_delimiter = ' ', num_args = 1.., value_parser=maybe_hex::<u32>)]
+    upload_address: Vec<u32>,
+
+    /// Final jump address, jumps to DA1 DRAM address if not set
+    #[arg(short, long, value_parser=maybe_hex::<u32>)]
+    jump_address: Option<u32>,
+
+    #[command(subcommand)]
+    mode: BootMode,
 }
 
-#[derive(Debug, Clone, Default, Encode, ValueEnum)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Encode, ValueEnum)]
 #[clap(rename_all = "kebab_case")]
 #[repr(u32)]
 enum LkBootMode {
@@ -176,7 +157,7 @@ enum DeviceMode {
 }
 
 #[derive(ctor)]
-struct State {
+struct Context {
     pub soc: SoC,
     pub cli: Cli,
 }
@@ -283,7 +264,7 @@ fn run(cli: Cli) -> Result<()> {
 
     print_target(&mut port)?;
 
-    let state = State::new(
+    let state = Context::new(
         SoC::try_from_hwcode(hwcode).ok_or(Error::UnsupportedSoC(hwcode))?,
         cli,
     );
@@ -296,15 +277,8 @@ fn run(cli: Cli) -> Result<()> {
 fn main() -> core::result::Result<(), String> {
     let cli = Cli::parse();
 
-    match &cli.command {
-        Command::Boot(command) => {
-            assert!(!command.input.is_empty());
-            assert_eq!(command.input.len(), command.upload_address.len());
-        }
-        Command::DA(command) => {
-            assert!(command.da.is_file() && command.da.exists());
-        }
-    }
+    assert!(!cli.input.is_empty());
+    assert_eq!(cli.input.len(), cli.upload_address.len());
 
     println!("For BROM mode short KCOL0 to the GND or add the crash option and connect the device");
     println!("For preloader mode simply connect the device");

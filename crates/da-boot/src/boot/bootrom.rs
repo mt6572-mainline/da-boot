@@ -1,13 +1,11 @@
 use std::{fs, thread::sleep, time::Duration};
 
-use colored::Colorize;
 use da_parser::preloader_header_size;
-use da_patcher::{Assembler, Disassembler, Patch, PatchCollection, preloader::Preloader};
 use da_protocol::Message;
 use simpleport::Port;
 
 use crate::{
-    DeviceMode, Result, State,
+    Context, DeviceMode, Result,
     boot::{
         preloader::{invalidate_ready, run_preloader},
         rpc::{rpc_payload, start_rpc},
@@ -18,7 +16,7 @@ use crate::{
     run_payload, status,
 };
 
-pub fn run_brom(mut state: State, mut port: Port, device_mode: DeviceMode) -> Result<()> {
+pub fn run_brom(mut state: Context, mut port: Port, device_mode: DeviceMode) -> Result<()> {
     assert!(device_mode.is_brom());
 
     run_payload(0x2001000, &rpc_payload()?, &mut port)?;
@@ -41,22 +39,7 @@ pub fn run_brom(mut state: State, mut port: Port, device_mode: DeviceMode) -> Re
 
     payload.truncate(100 * 1024);
 
-    let asm = Assembler::try_new()?;
-    let disasm = Disassembler::try_new()?;
-
     println!("Patching preloader...");
-    for i in [
-        Preloader::security(&asm, &disasm),
-        Preloader::hardcoded(&asm, &disasm),
-    ]
-    .iter()
-    .flatten()
-    {
-        match i.patch(&mut payload) {
-            Ok(()) => println!("{}", i.on_success().green()),
-            Err(e) => println!("{}: {e}", i.on_failure().red()),
-        }
-    }
 
     let preloader_base = state.soc.preloader_addr();
 

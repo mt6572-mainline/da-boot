@@ -17,7 +17,6 @@ derive_more = { workspace = true }
 derive-ctor = { workspace = true }
 da-boot-macros = { path = "../da-boot-macros" }
 da-parser = { path = "../da-parser" }
-da-patcher = { path = "../da-patcher" }
 simpleport = { workspace = true, features = ["std", "serialport"] }
 da-protocol = { path = "../da-protocol", features = ["std"] }
 da-soc = { path = "../da-soc" }
@@ -25,3 +24,4 @@ sha-1 = "0.10.1"
 enum_dispatch = { workspace = true }
 rustyline = "17.0.2"
 strum = { version = "0.27.2", features = ["derive"] }
+kaiko = { git = "https://github.com/rva3/kaiko", version = "0.1.0", features = ["no_tracers"] }

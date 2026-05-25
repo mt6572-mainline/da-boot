@@ -16,12 +16,13 @@ pub enum Error {
     #[error("Invalid status! Expected {0}, got {1}")]
     InvalidStatus(u16, u16),
 
+    /// kaiko error
+    #[error("kaiko error: {0}")]
+    DAAnalyzer(#[from] kaiko::err::Error),
+
     /// da-parser error
     #[error("da-parser error: {0}")]
     DAParser(#[from] da_parser::err::Error),
-    /// da-patcher error
-    #[error("da-patcher error: {0}")]
-    DAPatcher(#[from] da_patcher::err::Error),
     /// da-protocol error
     #[error("Protocol error: {0}")]
     DAProtocol(#[from] da_protocol::err::Error),

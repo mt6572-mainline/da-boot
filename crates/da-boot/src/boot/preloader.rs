@@ -3,14 +3,14 @@ use std::{thread::sleep, time::Duration};
 use simpleport::Port;
 
 use crate::{
-    Command, DeviceMode, Result, State,
-    boot::{bootrom::run_brom, da::run_da1, rpc::run_rpc_preloader},
+    Context, DeviceMode, Result,
+    boot::{bootrom::run_brom, rpc::run_rpc_preloader},
     commands::preloader::Read32,
     err::Error,
     get_hwcode, handshake, log, open_port, status,
 };
 
-pub fn run_preloader(state: State, port: Port, device_mode: DeviceMode) -> Result<()> {
+pub fn run_preloader(state: Context, port: Port, device_mode: DeviceMode) -> Result<()> {
     assert!(device_mode.is_preloader());
 
     let mut port = mt6572_preloader_workaround(port)?;
@@ -27,10 +27,7 @@ pub fn run_preloader(state: State, port: Port, device_mode: DeviceMode) -> Resul
         return run_brom(state, port, device_mode);
     }
 
-    match state.cli.command {
-        Command::Boot(command) => run_rpc_preloader(state.soc, port, command),
-        Command::DA(command) => run_da1(state.soc, port, command),
-    }
+    run_rpc_preloader(state, port)
 }
 
 pub fn invalidate_ready(port: &mut Port) -> Result<()> {
