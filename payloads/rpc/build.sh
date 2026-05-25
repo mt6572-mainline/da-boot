@@ -1,2 +1,2 @@
-cargo +nightly b --profile nostd -Z build-std=core,alloc
+cargo +nightly b --profile nostd -Z build-std=core,alloc -Zjson-target-spec
 llvm-objcopy -O binary ../../target/armv7a-none-eabi/nostd/rpc ../../target/armv7a-none-eabi/nostd/rpc
