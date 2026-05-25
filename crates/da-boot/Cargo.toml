@@ -16,7 +16,6 @@ thiserror = { workspace = true }
 derive_more = { workspace = true }
 derive-ctor = { workspace = true }
 da-boot-macros = { path = "../da-boot-macros" }
-da-parser = { path = "../da-parser" }
 simpleport = { workspace = true, features = ["std", "serialport"] }
 da-protocol = { path = "../da-protocol", features = ["std"] }
 da-soc = { path = "../da-soc" }
