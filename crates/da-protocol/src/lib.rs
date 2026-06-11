@@ -1,5 +1,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
+#![feature(const_trait_impl, const_default, const_cmp)]
 
+use core::ops::Range;
 use core::{borrow::Borrow, fmt::Display};
 
 use derive_ctor::ctor;
@@ -11,26 +13,94 @@ use crate::err::Error;
 
 pub mod err;
 
-pub type Result<T> = core::result::Result<T, Error>;
-
 #[derive(Serialize, Deserialize)]
 pub enum HookId {
     /// Allow booting boot.img or recovery.img from the RAM
     MtPartGenericRead,
-    /// Allow booting recovery.img as boot.img
-    MbootAndroidCheckImgInfo,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[repr(C)]
+pub struct PreloaderRunnerParams {
+    /// `bldr_jump` function pointer (for call)
+    pub ptr_bldr_jump: u32,
+}
+
+const impl Default for PreloaderRunnerParams {
+    fn default() -> Self {
+        Self { ptr_bldr_jump: 0 }
+    }
+}
+
+impl PreloaderRunnerParams {
+    pub fn new(ptr_bldr_jump: u32) -> Self {
+        Self { ptr_bldr_jump }
+    }
+
+    pub fn is_valid(&self) -> bool {
+        self.ptr_bldr_jump != 0
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[repr(C)]
+pub struct LKRunnerParams {
+    /// `mt_part_generic_read` function pointer (for hook)
+    pub ptr_mt_part_generic_read: u32,
+    /// `mt_part_get_partition` function pointer (for call)
+    pub ptr_mt_part_get_partition: u32,
+    /// Address for the boot.img
+    pub bootimg_scratch_addr: u32,
+}
+
+const impl Default for LKRunnerParams {
+    fn default() -> Self {
+        Self {
+            ptr_mt_part_generic_read: 0,
+            ptr_mt_part_get_partition: 0,
+            bootimg_scratch_addr: 0,
+        }
+    }
+}
+
+impl LKRunnerParams {
+    pub fn new(
+        ptr_mt_part_generic_read: u32,
+        ptr_mt_part_get_partition: u32,
+        bootimg_scratch_addr: u32,
+    ) -> Self {
+        Self {
+            ptr_mt_part_generic_read,
+            ptr_mt_part_get_partition,
+            bootimg_scratch_addr,
+        }
+    }
+
+    pub fn is_valid(&self) -> bool {
+        self.ptr_mt_part_generic_read != 0
+            && self.ptr_mt_part_get_partition != 0
+            && self.bootimg_scratch_addr != 0
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub enum ParamsType {
+    /// Preloader params
+    Preloader(PreloaderRunnerParams),
+    /// LK params
+    LK(LKRunnerParams),
 }
 
 /// Protocol messages
 #[derive(ctor, Serialize, Deserialize, IsVariant)]
 #[repr(u8)]
-pub enum Message<'a> {
+pub enum Message {
     /// Heartbeat.
-    Ack = 0x42,
+    Ack = 0xA0,
     /// Read data at `addr` with `size` length.
     Read { addr: u32, size: u32 },
     /// Write `data` to `addr`.
-    Write { addr: u32, data: &'a [u8] },
+    Write { addr: u32, size: u32 },
     /// Flush I and D-cache at `addr` with `size` aligned to 64.
     FlushCache { addr: u32, size: u32 },
     /// Jump to `addr`. The `addr` **must** contain **ARM** mode instructions.
@@ -43,102 +113,67 @@ pub enum Message<'a> {
     Reset,
     /// Setup hook
     Hook(HookId),
-
-    /// Return to `usbdl_handler` in the preloader mode.
-    Return,
+    /// Get free memory range with `size`
+    GetFreeRange { size: u32 },
+    /// Forbid download to the given range
+    BlacklistRange(Range<u32>),
+    /// Set params with a given type
+    SetParams(ParamsType),
 }
 
-#[cfg(not(feature = "std"))]
-impl Message<'_> {
-    pub fn debug(&self) -> u8 {
-        match self {
-            Self::Ack => b'A',
-            Self::Read { .. } => b'R',
-            Self::Write { .. } => b'W',
-            Self::FlushCache { .. } => b'F',
-            Self::Jump { .. } => b'J',
-            Self::Reset => b'W',
-            Self::Hook(_) => b'H',
-            Self::Return => b'P',
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize)]
-pub enum NotFoundError {
-    BldrJump,
-    MtPartGenericRead,
-    UsbDlHandler,
-}
-
-#[derive(Serialize, Deserialize, IsVariant)]
+#[derive(Debug, Serialize, Deserialize, IsVariant)]
 pub enum ProtocolError {
     /// Command is not supported
     NotSupported,
-    /// Didn't find any occurences of the match
-    NotFound(NotFoundError),
-    /// The control flow reached the point where it shouldn't be
+    /// This shouldn't have happened
     Unreachable,
-}
-
-#[cfg(not(feature = "std"))]
-impl ProtocolError {
-    pub fn debug(&self) -> u8 {
-        match self {
-            Self::NotSupported => b'N',
-            Self::NotFound(_) => b'F',
-            Self::Unreachable => b'U',
-        }
-    }
+    /// Download is forbidden due to memory range blacklist
+    DownloadForbidden,
+    /// Parameters are not valid.
+    InvalidParams,
 }
 
 /// Protocol responses
-#[derive(ctor, Serialize, Deserialize, IsVariant)]
+#[derive(Debug, ctor, Serialize, Deserialize, IsVariant)]
 #[repr(u8)]
-pub enum Response<'a> {
+pub enum Response {
     /// Operation succeed.
-    Ack = 0xDD,
+    Ack = 0xDA,
     /// Operation failed.
     Nack(ProtocolError),
-    /// Read data.
-    Read { data: &'a [u8] },
-    /// Value.
-    Value(u32),
+    /// Range address.
+    Range(Option<u32>),
 }
 
-#[cfg(not(feature = "std"))]
-impl Response<'_> {
-    pub fn debug(&self) -> u8 {
-        match self {
-            Self::Ack => b'A',
-            Self::Nack(_) => b'N',
-            Self::Read { .. } => b'R',
-            Self::Value(_) => b'V',
-        }
-    }
-}
+const BUF_SIZE: usize = size_of::<Message>().max(size_of::<Response>());
 
 /// `da-boot` protocol to communicate between host and device
 ///
 /// The protocol itself is really simple:
 /// - length of the payload - u32
 /// - data
-///
-/// It's up to host to not overflow the buffer with `Message::Read`, `Message::Write` and `Response::Read`.
-#[derive(ctor)]
-pub struct Protocol<T: SimpleRead + SimpleWrite, const N: usize> {
-    io: T,
-    buf: [u8; N],
+pub struct Protocol<T: SimpleRead + SimpleWrite> {
+    pub io: T,
+    buf: [u8; BUF_SIZE],
 }
 
-impl<T: SimpleRead + SimpleWrite, const N: usize> Protocol<T, N> {
-    /// Recommended buffer size for read/write operations, considering preloader stack limitation.
-    pub const RW_BUFFER_SIZE: usize = 2048 - max(size_of::<Message>(), size_of::<Response>());
+impl<T: SimpleRead + SimpleWrite> Protocol<T> {
+    pub fn new(io: T) -> Self {
+        Self {
+            io,
+            buf: [0; BUF_SIZE],
+        }
+    }
 
     /// Read data to the `buf` regardless of its' size.
-    fn read_data<'a, U: serde::Deserialize<'a>>(&'a mut self) -> Result<U> {
-        let size = self.io.read_u32_be()?;
-        self.io.read(&mut self.buf[..size as usize])?;
+    fn read_data<'a, U: serde::Deserialize<'a>>(
+        &'a mut self,
+    ) -> Result<U, Error<<T as SimpleRead>::Error>> {
+        let size = self.io.read_u32_be().map_err(Error::Transport)?;
+
+        self.io
+            .read(&mut self.buf[..size as usize])
+            .map_err(Error::Transport)?;
         let data = postcard::from_bytes(&self.buf)?;
 
         Ok(data)
@@ -147,43 +182,48 @@ impl<T: SimpleRead + SimpleWrite, const N: usize> Protocol<T, N> {
     /// Write `data` to the target.
     ///
     /// The `buf` is used for serialization without allocating temporary buffer.
-    fn write_data<'a, U: serde::Serialize + Borrow<U>>(&mut self, data: U) -> Result<()> {
+    fn write_data<'a, U: serde::Serialize + Borrow<U>>(
+        &mut self,
+        data: U,
+    ) -> Result<(), Error<<T as SimpleWrite>::Error>> {
         let bytes = postcard::to_slice(&data, &mut self.buf)?;
-        self.io.write_u32_be(bytes.len() as u32)?;
-        self.io.write(&bytes).map_err(|e| e.into())
+        self.io
+            .write_u32_be(bytes.len() as u32)
+            .map_err(Error::Transport)?;
+        self.io.write(&bytes).map_err(Error::Transport)
     }
 
     /// Receive message
     ///
     /// The message lives as long as the `buf` is valid.
-    pub fn read_message(&mut self) -> Result<Message<'_>> {
+    pub fn read_message(&mut self) -> Result<Message, Error<<T as SimpleRead>::Error>> {
         self.read_data()
     }
 
     /// Send message
     ///
     /// The `buf` is used to store the serialized data.
-    pub fn send_message<'a, U: serde::Serialize + Borrow<Message<'a>>>(
+    pub fn send_message<U: serde::Serialize + Borrow<Message>>(
         &mut self,
         message: U,
-    ) -> Result<()> {
+    ) -> Result<(), Error<<T as SimpleWrite>::Error>> {
         self.write_data(message)
     }
 
     /// Receive response
     ///
     /// The response lives as long as the `buf` is valid.
-    pub fn read_response(&mut self) -> Result<Response<'_>> {
+    pub fn read_response(&mut self) -> Result<Response, Error<<T as SimpleRead>::Error>> {
         self.read_data()
     }
 
     /// Send response
     ///
     /// The `buf` is used to store the serialized data.
-    pub fn send_response<'a, U: serde::Serialize + Borrow<Response<'a>>>(
+    pub fn send_response<U: serde::Serialize + Borrow<Response>>(
         &mut self,
         response: U,
-    ) -> Result<()> {
+    ) -> Result<(), Error<<T as SimpleWrite>::Error>> {
         self.write_data(response)
     }
 }
@@ -192,47 +232,47 @@ impl Display for HookId {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::MtPartGenericRead => write!(f, "mt_part_generic_read"),
-            Self::MbootAndroidCheckImgInfo => write!(f, "mboot_android_check_img_info"),
         }
     }
 }
 
-impl Display for Message<'_> {
+impl Display for ParamsType {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Preloader(_) => write!(f, "Preloader"),
+            Self::LK(_) => write!(f, "LK"),
+        }
+    }
+}
+
+impl Display for Message {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Ack => write!(f, "ACK"),
-            Self::Read { addr, size } => write!(f, "Read @ 0x{addr:08x} for 0x{size:x} bytes"),
-            Self::Write { addr, data } => {
-                write!(f, "Write @ 0x{addr:08x}: [")?;
-                format_slice(f, data)?;
-                write!(f, "]")
+            Self::Read { addr, size } => write!(f, "Read {size:#x} bytes 0x{addr:#10x}"),
+            Self::Write { addr, size } => {
+                write!(f, "Write {size:#x} bytes at {addr:#10x}")
             }
             Self::FlushCache { addr, size } => {
-                write!(f, "Flush cache @ 0x{addr:08x} for 0x{size:x} bytes")
+                write!(f, "Flush cache @ {addr:#10x} for {size:#x} bytes")
             }
             Self::Jump { addr, r0, r1 } => {
-                write!(f, "Jump to 0x{addr:08x}")?;
+                write!(f, "Jump to {addr:#10x}")?;
                 if let Some(r0) = r0 {
-                    write!(f, " R0: 0x{r0:08x}")?;
+                    write!(f, " R0: {r0:#10x}")?;
                 }
                 if let Some(r1) = r1 {
-                    write!(f, " R1: 0x{r1:08x}")?;
+                    write!(f, " R1: {r1:#10x}")?;
                 }
                 Ok(())
             }
             Self::Reset => write!(f, "Reset"),
             Self::Hook(hook) => write!(f, "Hook: {hook}"),
-            Self::Return => write!(f, "Jump to usbdl_handler"),
-        }
-    }
-}
-
-impl Display for NotFoundError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            Self::BldrJump => write!(f, "bldr_jump"),
-            Self::MtPartGenericRead => write!(f, "mt_part_generic_read"),
-            Self::UsbDlHandler => write!(f, "usbdl_handler"),
+            Self::GetFreeRange { size } => write!(f, "Get free range with {size:#x} bytes"),
+            Self::BlacklistRange(range) => {
+                write!(f, "Blacklist range {:#x}..{:#x}", range.start, range.end)
+            }
+            Self::SetParams(params) => write!(f, "Set params for the {params}"),
         }
     }
 }
@@ -241,38 +281,25 @@ impl Display for ProtocolError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::NotSupported => write!(f, "Not supported"),
-            Self::NotFound(error) => write!(f, "Not found: {error}"),
             Self::Unreachable => write!(f, "Unreachable"),
+            Self::DownloadForbidden => write!(f, "Download forbidden"),
+            Self::InvalidParams => write!(f, "Invalid parameters"),
         }
     }
 }
 
-impl Display for Response<'_> {
+impl Display for Response {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Ack => write!(f, "ACK"),
             Self::Nack(e) => write!(f, "Not ACK: {e}"),
-            Self::Read { data } => {
-                write!(f, "Data: [")?;
-                format_slice(f, data)?;
-                write!(f, "]")
+            Self::Range(maybe_addr) => {
+                if let Some(addr) = maybe_addr {
+                    write!(f, "Range at {addr:#10x}")
+                } else {
+                    write!(f, "Free range list is exhaustd")
+                }
             }
-            Self::Value(value) => write!(f, "Value: {value}"),
         }
     }
-}
-
-const fn max(a: usize, b: usize) -> usize {
-    if a > b { a } else { b }
-}
-
-fn format_slice(f: &mut core::fmt::Formatter, data: &[u8]) -> core::fmt::Result {
-    for (i, byte) in data.iter().enumerate() {
-        if i != 0 {
-            write!(f, ", ")?;
-        }
-        write!(f, "{:#04x}", byte)?;
-    }
-
-    Ok(())
 }

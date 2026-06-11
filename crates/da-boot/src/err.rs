@@ -2,13 +2,6 @@ use thiserror::Error as TError;
 
 #[derive(Debug, TError)]
 pub enum Error {
-    /// More than one device in preloader mode is connected
-    #[error("Please disconnect other devices in the preloader mode")]
-    MoreThanOneDevice,
-
-    #[error("SoC with {0:#x} hwcode is unsupported")]
-    UnsupportedSoC(u16),
-
     /// The device returned invalid data when echoing bytes back
     #[error("Data doesn't match! Expected {0:#x}, got {1:#x}")]
     InvalidEchoData(u32, u32),
@@ -16,13 +9,9 @@ pub enum Error {
     #[error("Invalid status! Expected {0}, got {1}")]
     InvalidStatus(u16, u16),
 
-    /// kaiko error
-    #[error("kaiko error: {0}")]
-    DAAnalyzer(#[from] kaiko::err::Error),
-
     /// da-protocol error
     #[error("Protocol error: {0}")]
-    DAProtocol(#[from] da_protocol::err::Error),
+    DAProtocol(#[from] da_protocol::err::Error<std::io::Error>),
 
     /// I/O error
     #[error("I/O error: {0}")]
@@ -33,19 +22,8 @@ pub enum Error {
     /// serialport crate error
     #[error("serialport error: {0}")]
     SerialPort(#[from] serialport::Error),
-    /// bincode crate error
-    #[error("Bincode encode error: {0}")]
-    BincodeEncode(#[from] bincode::error::EncodeError),
 
     /// rustyline crate error
     #[error("rustyline crate error: {0}")]
     Rustyline(#[from] rustyline::error::ReadlineError),
-
-    /// `simpleport` crate error
-    #[error("simpleport error: {0}")]
-    Simpleport(#[from] simpleport::err::Error),
-
-    /// Any other error
-    #[error("{0}")]
-    Custom(#[from] Box<dyn std::error::Error>),
 }

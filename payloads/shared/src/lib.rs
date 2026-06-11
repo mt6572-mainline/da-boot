@@ -1,5 +1,5 @@
 #![no_std]
-use core::{arch::asm, ptr};
+use core::{arch::asm, fmt::Write, ptr};
 
 #[cfg(feature = "ufmt")]
 use ufmt::uWrite;
@@ -61,6 +61,15 @@ impl uWrite for Serial {
     fn write_str(&mut self, s: &str) -> Result<(), Self::Error> {
         for c in s.as_bytes() {
             Self::putc(*c);
+        }
+        Ok(())
+    }
+}
+
+impl Write for Serial {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        for b in s.bytes() {
+            Serial::putc(b);
         }
         Ok(())
     }

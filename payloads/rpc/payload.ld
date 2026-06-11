@@ -9,8 +9,15 @@ SECTIONS
 
     _image_start = 0x0;
 
-    .text : {
+    .text.init : {
         KEEP(*(.text.start))
+    }
+
+    .params : ALIGN(4) {
+        *(.params .params*)
+    }
+
+    .text : {
         *(.text .text.*)
     }
 

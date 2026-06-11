@@ -7,5 +7,6 @@ rustflags = [
   "-C", "link-arg=-pie",
   "-C", "link-arg=-Bstatic",
   "-C", "link-arg=--no-dynamic-linker",
-  "-C", "link-dead-code=no"
+  "-C", "link-dead-code=no",
+  "-C", "force-frame-pointers=no",
 ]
