@@ -2,7 +2,7 @@
 Boot bare-metal binaries as DA on MediaTek MT6572
 
 # Installation
-- Make sure Rust and C++ compilers, python, cmake, make and `llvm-objcopy` are available on the host
+- Make sure `llvm-objcopy` is available on the host
 - Install nightly toolchain: `rustup default nightly`
 - Install host std: `rustup component add rust-src`
 - Install arm std: `rustup target install armv7a-none-eabi`
@@ -10,75 +10,63 @@ Boot bare-metal binaries as DA on MediaTek MT6572
 # Subprojects
 da-boot is modular enough to commonize code when need to.
 
-Fill an issue if you want to re-use da-boot parts in your project. Note that some parts (e.g. protocol, bare-metal payloads and so on) are tied to da-boot, and may introduce breaking changes. However, generic enough™ parts (like analyzer, interceptor or bump allocator) can be moved outside da-boot.
+Fill an issue if you want to re-use da-boot parts in your project. Note that some parts (e.g. protocol, bare-metal payloads etc) are tied to da-boot, and may introduce breaking changes. However, generic enough™ parts (like interceptor or bump allocator) can be moved outside da-boot.
 
 ## Bare-metal side
 - [Very tiny bump allocator](./payloads/bump)
-- [DA1 exploit payload](./payloads/da1)
 - [Thumb2 runtime hooking](./payloads/interceptor)
 - [Helper payload (RPC)](./payloads/rpc)
 - [Shared bits for bare-metal side](./payloads/shared)
 
 ## Host
-- [proc-macro to generate communication with BootROM/Preloader/DA](./crates/da-boot-macros)
-- [DA, LK and (partial) preloader parser](./crates/da-parser)
-- [Preloader/DA static patcher](./crates/da-patcher)
-- [Code disassembler & flow analyzer](./crates/da-analyzer)
+- [proc-macro to generate communication with BootROM/Preloader](./crates/da-boot-macros)
+- [Preloader/DA static patcher (only extractions for now)](./crates/da-patcher)
 
 ## Mixed (both host and bare-metal)
 - [da-boot's Protocol](./crates/da-protocol)
 - [Multi-SoC support (WIP)](./crates/da-soc)
 
+## Old subprojects
+- da-port -> [simpleport](https://github.com/rva3/simpleport) - abstraction for serial communication
+- da-analyzer -> [kaiko](https://github.com/rva3/kaiko) - ARM analysis for more reliable extraction/patching
+- da-parser (+ lots of shomy's work) -> [hacc](https://github.com/shomykohai/hacc) - image parser & writer
+
+### Pending moves
+- da-soc -> [acon](https://github.com/rva3/acon/)
+
 # Usage
-Run `cargo r --release -p da-boot -- --help` to see the full list of possible arguments.
-## Booting generic bare-metal payload
-### Prepare helper payload
+Make sure to supply preloader for **your exact device**, not from the other one.
+
+## Prepare helper payload
 ```
 cd payloads/rpc
 ./build.sh
 cd ../..
 ```
 
-## LK
-Add `-m lk` to boot payload as LK image
-
-### LK payload
-LK can boot bare-metal payloads packed as boot.img (including U-Boot) via `boot_linux` function. The helper payload will hook it when more than one binary is uploaded in the LK mode (address must match temporary buffer for boot.img, so `0x83000000`).
-
-## DA
-The DA mode is currently work-in-progress and does nothing besides booting DA2 with an option test DA1 exploitation (DA2 is TODO).
-
-Run `cargo r --release -p da-boot -- da -i /path/to/DA.bin`. To disable DA patching, pass the `--skip-patch` parameter.
-
-## Parsing DA
-Dump da1 and da2 for all SoCs
-```
-mkdir da
-cargo r --release -p da-parser -- --input /path/to/DA.bin --output da
-```
-Add `--hw-code` parameter to filter the SoC
-
-## Patching binaries
-Note that patterns are tested only on few devices. Create an issue if something is failed to patch.
+## Boot modes
+Run `cargo r --release -p da-boot -- --help` to see the full list.
 
 ### Preloader
-Strip 0xb00 bytes (preloader header) and run `cargo r --release -p da-patcher -- -i /path/to/preloader_without_header.bin -o preloader.bin --ty preloader`.
+Boot image after the preloader finishes execution.
 
-Most patches for preloader are removed because helper payload implements da-boot's own protocol instead of fixing MediaTek's.
+#### Examples
+- Boot LK: `cargo r --release -p da-boot -- --lk lk.bin -p preloader.bin preloader`
+- Boot any other bare-metal image (custom headers won't be parsed): `cargo r --release -p da-boot -- --input target.bin@0xUPLOAD_ADDR -p preloader.bin preloader`
 
-### DA
-Run `cargo r --release -p da-patcher -- -i /path/to/da1_or_da2.bin -o da1_or_da2.bin --ty da`.
+### LK
+Boot image after the LK finishes execution. This will attempt to hook LK function to disable loading boot.img from the eMMC. The result may be wrong since this mode is experimental.
 
-This will enable UART output and disable hash check.
+LK image is required to enter the mode. Make sure to use the one for **your exact device**, not from the others.
 
-### Full command examples
-Crash to the BootROM mode, boot `preloader.bin`, then `lk.bin` in FASTBOOT mode:
-```
-cargo r --release -p da-boot -- -c -p preloader.bin boot -i lk.bin -u 0x80020000 -j 0x80020000 -m lk --lk-mode fastboot
-```
+#### Examples
+- Create boot.img with MediaTek headers and invoke mkbootimg: `cargo r --release -p da-boot -- --lk lk.bin --kernel zImageAndDTB.bin -p preloader.bin lk`
+- Boot already prepared boot.img: `cargo r --release -p da-boot -- --lk lk.bin --input boot.img@0xUPLOAD_ADDR -p preloader.bin lk`. 0xUPLOAD_ADDR must be non-overlapping address in the DRAM, such as `0x85000000` for mt6572. 
 
 ## Credits
 - [kaeru](https://github.com/R0rt1z2/kaeru) - early C payload, macros
 - [frida-gum](https://github.com/frida/frida-gum) - interceptor idea
+- [hacc](https://github.com/shomykohai/hacc) - image parser & writer
+- [kaiko](https://github.com/rva3/kaiko) - honorable mention for my ARM ISA sufferings
 - [yaxpeax-arm](https://github.com/iximeow/yaxpeax-arm) - very fast and nice diassembler
 - MediaTek - how you shouldn't do things :)
