@@ -1,7 +1,9 @@
-use da_protocol::{Message, Protocol, Response};
-use simpleport::Port;
+use anyhow::{Context, Result};
+use da_protocol::{Message, Protocol};
 
-use crate::{Result, err::Error};
+use crate::Port;
+
+const CHUNK_SIZE: usize = 256 * 1024;
 
 pub trait HostExtensions {
     fn start(&mut self) -> Result<()>;
@@ -9,56 +11,54 @@ pub trait HostExtensions {
     fn download(&mut self, addr: u32, len: u32) -> Result<Vec<u8>>;
 }
 
-impl<const N: usize> HostExtensions for Protocol<Port, N> {
+impl HostExtensions for Protocol<Port> {
     fn start(&mut self) -> Result<()> {
         if self.read_message()?.is_ack() {
             self.send_message(Message::ack()).map_err(|e| e.into())
         } else {
-            Err(Error::Custom("Device didn't send ACK".into()))
+            anyhow::bail!("device didn't reply with ack");
         }
     }
 
     fn upload(&mut self, addr: u32, data: &[u8]) -> Result<()> {
-        for (i, data) in data.chunks(Self::RW_BUFFER_SIZE).enumerate() {
-            let addr = addr + (i * Self::RW_BUFFER_SIZE) as u32;
-            self.send_message(Message::write(addr, data))?;
-            if self.read_response()?.is_nack() {
-                return Err(Error::Custom(
-                    format!("Device didn't accept chunk {i}").into(),
-                ));
-            }
-            self.send_message(Message::flush_cache(addr, data.len() as u32))?;
-            if self.read_response()?.is_nack() {
-                return Err(Error::Custom(
-                    format!("Device didn't flush cache at chunk {i}").into(),
-                ));
-            }
+        for (i, data) in data.chunks(CHUNK_SIZE).enumerate() {
+            let addr = addr + (i * CHUNK_SIZE) as u32;
+            self.send_message(Message::write(addr, data.len() as u32))?;
+            self.io.write_all(data)?;
+            self.read_response()?;
         }
 
         Ok(())
     }
 
     fn download(&mut self, addr: u32, len: u32) -> Result<Vec<u8>> {
-        let mut vec = Vec::with_capacity(len as usize);
-        let mut do_download = |addr: u32, len: u32| {
-            self.send_message(Message::read(addr, len))?;
-            if let Response::Read { data } = self.read_response()? {
-                vec.extend_from_slice(data);
+        let mut vec = vec![0u8; len as usize];
+        let mut do_download = |addr: u32, chunk_len: u32, offset: usize| {
+            self.send_message(Message::read(addr, chunk_len))?;
+
+            let start = offset;
+            let end = start + chunk_len as usize;
+            self.io.read_exact(&mut vec[start..end])?;
+
+            if self.read_response()?.is_ack() {
                 Ok(())
             } else {
-                Err(Error::Custom("Device didn't respond with read".into()))
+                anyhow::bail!("device didn't reply with ack");
             }
         };
 
-        let rw = Self::RW_BUFFER_SIZE as u32;
-        for i in 0..len / rw {
-            do_download(addr + (i * rw), rw)?;
+        let chunk_size = CHUNK_SIZE as u32;
+        for i in 0..len / chunk_size {
+            let offset = (i * chunk_size) as usize;
+            do_download(addr + (i * chunk_size), chunk_size, offset)
+                .with_context(|| format!("error on sending chunk {i}"))?;
         }
 
-        let remainder = len % rw;
+        let remainder = len % chunk_size;
         if remainder != 0 {
-            let offset = (len / rw) * rw;
-            do_download(addr + offset, remainder)?;
+            let offset = ((len / chunk_size) * chunk_size) as usize;
+            do_download(addr + offset as u32, remainder, offset)
+                .context("error on sending remainder")?;
         }
 
         Ok(vec)

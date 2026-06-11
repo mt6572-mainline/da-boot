@@ -7,10 +7,10 @@ edition = "2024"
 proc-macro = true
 
 [dependencies]
-darling = "0.21.3"
-proc-macro2 = "1.0.101"
-quote = "1.0.40"
-syn = "2.0.106"
+darling = "0.23.0"
+proc-macro2 = "1.0.106"
+quote = "1.0.45"
+syn = "2.0.117"
 derive_more = { workspace = true }
 derive-ctor = { workspace = true }
-convert_case = "0.9.0"
+convert_case = "0.11.0"

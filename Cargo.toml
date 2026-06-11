@@ -1,23 +1,22 @@
 [workspace]
 resolver = "3"
-members = ["crates/da-boot", "crates/da-boot-macros", "crates/da-protocol", "crates/da-soc", "payloads/bump", "payloads/da1", "payloads/interceptor", "payloads/rpc", "payloads/shared"]
+members = ["crates/da-boot", "crates/da-boot-macros", "crates/da-params", "crates/da-patcher", "crates/da-protocol", "crates/da-soc", "payloads/bump", "payloads/interceptor", "payloads/rpc", "payloads/shared"]
 
 [workspace.dependencies]
-derive_more = { version = "2.0.1", features = ["is_variant"] }
-bincode = "2.0.1"
+derive_more = { version = "2.1.1", features = ["is_variant", "unwrap"] }
 thiserror = "2.0.18"
 derive-ctor = "1.0.6"
-clap = { version = "4.5.48", features = ["derive"] }
+clap = { version = "4.6.1", features = ["derive"] }
 clap-num = "1.2.0"
-serialport = "4.8.1"
-enum_dispatch = "0.3.13"
+serialport = "4.9.0"
 simpleport = { git = "https://github.com/rva3/simpleport" }
 ufmt = "0.2.0"
+kaiko = { git = "https://github.com/rva3/kaiko", version = "0.1.0", features = ["no_tracers"] }
 
 [profile.release]
 opt-level = 3
-strip = true
-lto = "thin"
+lto = "fat"
+codegen-units = 1
 
 [profile.nostd]
 inherits = "release"

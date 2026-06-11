@@ -1,33 +1,25 @@
-use std::{thread::sleep, time::Duration};
-
-use simpleport::Port;
+use anyhow::{Context, Result};
+use da_params::MemoryRange;
+use da_patcher::{Extract, preloader::usb_ptr::PreloaderDLULPtr};
 
 use crate::{
-    Context, DeviceMode, Result,
-    boot::{bootrom::run_brom, rpc::selector::run_rpc_preloader},
-    commands::preloader::Read32,
-    err::Error,
-    get_hwcode, handshake, log, open_port, status,
+    DeviceMode, Port, State, boot::rpc::selector::run_rpc_preloader, get_hwcode, handshake,
+    open_port,
 };
 
-pub fn run_preloader(state: Context, port: Port, device_mode: DeviceMode) -> Result<()> {
+pub fn run_preloader(state: &mut State, port: Port, device_mode: DeviceMode) -> Result<()> {
     assert!(device_mode.is_preloader());
 
-    let mut port = mt6572_preloader_workaround(port)?;
+    let port = mt6572_preloader_workaround(port)?;
 
-    if state.cli.crash {
-        log!("Crashing to brom mode...");
-        status!(crash_to_brom(&mut port))?;
-        drop(port);
-        sleep(Duration::from_millis(100));
-        println!();
+    state.params.memory = MemoryRange::new(0x80000000, 0x90000000);
+    let (ptr_dl, ptr_ul) = PreloaderDLULPtr::new(&state.preloader.analyzer)
+        .extract()
+        .context("Failed to extract Preloader function pointers")?;
+    state.params.ptr_dl = ptr_dl;
+    state.params.ptr_ul = ptr_ul;
 
-        let (device_mode, mut port) = open_port()?;
-        handshake(&mut port)?;
-        return run_brom(state, port, device_mode);
-    }
-
-    run_rpc_preloader(state, port)
+    run_rpc_preloader(state, port).context("Error on RPC run")
 }
 
 pub fn invalidate_ready(port: &mut Port) -> Result<()> {
@@ -46,12 +38,5 @@ pub fn mt6572_preloader_workaround(mut port: Port) -> Result<Port> {
         Ok(port)
     } else {
         Ok(port)
-    }
-}
-
-fn crash_to_brom(port: &mut Port) -> Result<()> {
-    match Read32::new(0x0, 1).run(port) {
-        Err(Error::Simpleport(simpleport::err::Error::Io(_))) => Ok(()),
-        _ => Err(Error::Custom("Retry".into())),
     }
 }

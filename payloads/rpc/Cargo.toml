@@ -3,12 +3,24 @@ name = "rpc"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "brom"
+path = "src/brom.rs"
+
+[[bin]]
+name = "pl"
+path = "src/pl.rs"
+required-features = ["pl"]
+
+[features]
+pl = ["dep:interceptor"]
+
 [dependencies]
-heapless = { version = "0.9.1", features = ["ufmt"] }
 shared = { path = "../shared", features = ["ufmt"] }
-interceptor = { path = "../interceptor", features = ["alloc"] }
+interceptor = { path = "../interceptor", features = ["alloc"], optional = true }
 bump = { path = "../bump" }
 simpleport = { workspace = true }
 da-protocol = { path = "../../crates/da-protocol" }
+da-params = { path = "../../crates/da-params" }
 derive-ctor = { workspace = true }
 ufmt = { workspace = true }

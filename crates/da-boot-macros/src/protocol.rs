@@ -298,7 +298,7 @@ pub fn da_legacy(input: TokenStream) -> TokenStream {
                         Some(quote! {
                             #code
                             /// Run command to get the value
-                            pub fn #run_ident(mut self, port: &mut crate::Port) -> crate::Result<#ty> {
+                            pub fn #run_ident(mut self, port: &mut crate::Port) -> core::result::Result<#ty, crate::err::Error> {
                                 self.run(port)?;
                                 Ok(self.#ident)
                             }
@@ -320,7 +320,7 @@ pub fn da_legacy(input: TokenStream) -> TokenStream {
                     FieldType::Tx(tx_ty) => {
                         let ident = &f.ident;
                         let default = match tx_ty {
-                            TxType::Always(v) => Some(quote! { self.#ident = #v.try_into().map_err(|e| Error::Custom(format!("Int conversion failed, this shouldn't happen unless the codegen struct is messed up: {e}").into()))?; }),
+                            TxType::Always(v) => Some(quote! { self.#ident = #v.try_into().unwrap(); }),
                             TxType::None => None,
                         };
 
@@ -355,7 +355,8 @@ pub fn da_legacy(input: TokenStream) -> TokenStream {
                             code.load().tx().rx().echo_status().store()
                         } else {
                             code.rx().store().load().tx()
-                        }.finalize()
+                        }
+                        .finalize()
                     }
                 }
             }
@@ -390,7 +391,7 @@ pub fn da_legacy(input: TokenStream) -> TokenStream {
             #(#methods)*
 
             /// Runs the command
-            pub fn run(&mut self, port: &mut crate::Port) -> crate::Result<()> {
+            pub fn run(&mut self, port: &mut crate::Port) -> core::result::Result<(), crate::err::Error> {
                 use simpleport::{SimpleRead, SimpleWrite};
                 #command
                 #(#code;)*

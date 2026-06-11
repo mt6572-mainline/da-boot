@@ -1,14 +1,11 @@
-use std::{
-    borrow::Borrow,
-    iter::{self, once},
-};
+use std::iter::once;
 
 use clap::{Parser, Subcommand};
 use clap_num::maybe_hex;
 use da_protocol::{Message, Protocol};
 use rustyline::{DefaultEditor, error::ReadlineError};
 
-use crate::Result;
+use crate::{Port, Result, boot::rpc::ext::HostExtensions};
 
 #[derive(Parser)]
 struct REPL {
@@ -53,40 +50,17 @@ enum Command {
     },
     /// Reset the device using watchdog.
     Reset,
-
-    // Preloader commands
-    /// Return to `usbdl_handler`.
-    Return,
 }
 
-impl Command {
-    fn as_message<'a>(&'a self) -> Message<'a> {
-        match self {
-            Self::Ack => Message::Ack,
-            Self::Read { addr, size } => Message::Read {
-                addr: *addr,
-                size: *size,
-            },
-            Self::Write { addr, data } => Message::Write {
-                addr: *addr,
-                data: data,
-            },
-            Self::FlushCache { addr, size } => Message::FlushCache {
-                addr: *addr,
-                size: *size,
-            },
-            Self::Jump { addr, r0, r1 } => Message::Jump {
-                addr: *addr,
-                r0: *r0,
-                r1: *r1,
-            },
-            Self::Reset => Message::Reset,
-            Self::Return => Message::Return,
-        }
-    }
+fn do_send(protocol: &mut Protocol<Port>, message: Message) -> Result<()> {
+    protocol
+        .send_message(&message)
+        .inspect(|()| println!("=> {message}"))
+        .inspect_err(|e| eprintln!("Failed to send message: {e}"))
+        .map_err(Into::into)
 }
 
-pub fn run_repl(mut protocol: Protocol<simpleport::Port, 2048>) -> Result<()> {
+pub fn run_repl(mut protocol: Protocol<Port>) -> Result<()> {
     println!("Enter --help for help, Ctrl-C to exit");
 
     let mut rl = DefaultEditor::new()?;
@@ -101,33 +75,83 @@ pub fn run_repl(mut protocol: Protocol<simpleport::Port, 2048>) -> Result<()> {
 
                 rl.add_history_entry(&line)?;
 
-                match REPL::try_parse_from(once("repl").chain(line.split(" "))) {
-                    Ok(repl) => {
-                        let message = repl.command.as_message();
-                        match protocol.send_message(&message) {
-                            Ok(_) => println!("=> {message}"),
-                            Err(e) => {
-                                eprintln!("Failed to send message: {e}");
-                                Err(e)?
+                match REPL::try_parse_from(once("repl").chain(line.split_whitespace())) {
+                    Ok(repl) => match repl.command {
+                        Command::Ack => {
+                            do_send(&mut protocol, Message::Ack)?;
+                            print_response(&mut protocol)?;
+                        }
+                        Command::FlushCache { addr, size } => {
+                            do_send(&mut protocol, Message::FlushCache { addr, size })?;
+                            print_response(&mut protocol)?;
+                        }
+                        Command::Jump { addr, r0, r1 } => {
+                            do_send(&mut protocol, Message::Jump { addr, r0, r1 })?;
+                            print_response(&mut protocol)?;
+                        }
+                        Command::Reset => {
+                            do_send(&mut protocol, Message::Reset)?;
+                            print_response(&mut protocol)?;
+                        }
+                        Command::Read { addr, size } => {
+                            println!("Reading {size} bytes from {addr:#010x}...");
+                            match protocol.download(addr, size) {
+                                Ok(data) => {
+                                    println!("<= Downloaded {} bytes", data.len());
+                                    hex_dump(&data);
+                                }
+                                Err(e) => eprintln!("Download failed: {e}"),
                             }
                         }
-
-                        match protocol.read_response() {
-                            Ok(r) => println!("<= {r}"),
-                            Err(e) => Err(e)?,
+                        Command::Write { addr, data } => {
+                            println!("Writing {} bytes to {addr:#010x}...", data.len());
+                            match protocol.upload(addr, &data) {
+                                Ok(()) => println!("<= Upload finished"),
+                                Err(e) => eprintln!("Upload failed: {e}"),
+                            }
                         }
-                    }
+                    },
                     Err(e) => {
                         e.print().ok();
                     }
                 }
             }
             Err(ReadlineError::Eof) | Err(ReadlineError::Interrupted) => break,
-            Err(e) => Err(e)?,
+            Err(e) => return Err(e.into()),
         }
     }
 
     Ok(())
+}
+
+fn print_response(protocol: &mut Protocol<Port>) -> Result<()> {
+    match protocol.read_response() {
+        Ok(r) => {
+            println!("<= {r}");
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("Failed to read response: {e}");
+            Err(e.into())
+        }
+    }
+}
+
+fn hex_dump(data: &[u8]) {
+    for chunk in data.chunks(16) {
+        let hex: Vec<String> = chunk.iter().map(|b| format!("{b:02x}")).collect();
+        let ascii: String = chunk
+            .iter()
+            .map(|&b| {
+                if b.is_ascii_graphic() || b == b' ' {
+                    b as char
+                } else {
+                    '.'
+                }
+            })
+            .collect();
+        println!("{:48} | {}", hex.join(" "), ascii);
+    }
 }
 
 fn hex_u8(s: &str) -> core::result::Result<u8, String> {

@@ -39,17 +39,6 @@ impl<T> Static<T> {
 }
 
 #[macro_export]
-macro_rules! c_function {
-    (fn ($($a:ty),*) $(-> $r:ty)?, $addr:expr) => {
-        unsafe {
-            type F = unsafe extern "C" fn ($($a),*) $(-> $r)?;
-            let f: F = core::mem::transmute($addr);
-            f
-        }
-    };
-}
-
-#[macro_export]
 macro_rules! hook {
     (
         fn $name:ident($ctx_name:ident: $ctxty:ty) $(-> $ret:ty)? $body:block

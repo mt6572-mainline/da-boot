@@ -10,6 +10,7 @@
 
 use core::alloc::{GlobalAlloc, Layout};
 use core::cell::Cell;
+use core::ptr;
 
 /// A bump allocator.
 ///
@@ -19,7 +20,8 @@ use core::cell::Cell;
 /// - The caller is expected to have only one thread or hold the lock
 /// - The caller is responsible for not hitting reserved memory by setting safe memory range
 pub struct BumpAllocator {
-    ptr: Cell<usize>,
+    ptr: Cell<Option<usize>>,
+    size: Cell<usize>,
 }
 
 unsafe impl Sync for BumpAllocator {}
@@ -28,13 +30,24 @@ unsafe impl GlobalAlloc for BumpAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         let align = layout.align();
         let size = layout.size();
+        let available_size = self.size.get();
 
-        let ptr = self.ptr.get();
-        let aligned = align_up(ptr, align);
+        if let Some(ptr) = self.ptr.get() {
+            let aligned_ptr = align_up(ptr, align);
 
-        self.ptr.set(aligned + size);
+            let padding = aligned_ptr - ptr;
 
-        aligned as *mut u8
+            if let Some(total) = padding.checked_add(size) {
+                if available_size >= total {
+                    self.ptr.set(Some(aligned_ptr + size));
+                    self.size.set(available_size - total);
+
+                    return aligned_ptr as *mut u8;
+                }
+            }
+        }
+
+        ptr::null_mut()
     }
 
     unsafe fn dealloc(&self, _ptr: *mut u8, _layout: Layout) {}
@@ -48,10 +61,28 @@ impl BumpAllocator {
     /// valid and sufficiently large memory region that will not be used for
     /// any other purpose.
     #[must_use]
-    pub const fn new(ptr: usize) -> Self {
+    pub const fn new(ptr: usize, size: usize) -> Self {
         Self {
-            ptr: Cell::new(ptr),
+            ptr: Cell::new(Some(ptr)),
+            size: Cell::new(size),
         }
+    }
+
+    /// Create a new bump allocator with empty data.
+    ///
+    /// Useful for runtime memory address setting
+    #[must_use]
+    pub const fn empty() -> Self {
+        Self {
+            ptr: Cell::new(None),
+            size: Cell::new(0),
+        }
+    }
+
+    /// Initialize allocator with given address and `size`
+    pub const fn init(&mut self, ptr: usize, size: usize) {
+        self.ptr.replace(Some(ptr));
+        self.size.replace(size);
     }
 }
 

@@ -6,7 +6,7 @@
   "data-layout": "e-m:e-p:32:32-Fi8-i64:64-v128:64:128-a:0:32-n32-S64",
   "disable-redzone": true,
   "emit-debug-gdb-scripts": false,
-  "features": "+v7,+thumb-mode,+soft-float,-neon,+strict-align",
+  "features": "+v7,+thumb-mode,+hwdiv,+soft-float,-neon,+strict-align",
   "linker": "rust-lld",
   "linker-flavor": "gnu-lld",
   "llvm-floatabi": "soft",
