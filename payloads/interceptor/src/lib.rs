@@ -39,11 +39,10 @@ impl<T> Static<T> {
 }
 
 #[macro_export]
-macro_rules! hook {
-    (
-        fn $name:ident($ctx_name:ident: $ctxty:ty) $(-> $ret:ty)? $body:block
-    ) => {
-        pub mod $name {
+macro_rules! hook_with_context {
+    ($mod_name:ident, $body_fn:path) => {
+        pub mod $mod_name {
+            #[allow(unused_imports)]
             use super::*;
 
             #[allow(static_mut_refs)]
@@ -59,33 +58,68 @@ macro_rules! hook {
                     "pop {{r4-r11, r12, lr}}",
                     "pop {{r0-r3}}",
                     "bx lr",
-                    sym body
+                    sym $body_fn
                 );
             }
 
-            pub(super) unsafe extern "C" fn body(ctx: &mut interceptor::InvocationContext) $(-> $ret)? {
-                let $ctx_name = ctx;
-                $body
-            }
-
-            pub unsafe fn replace(target: usize) -> interceptor::Result<()> {
+            pub unsafe fn replace(target: usize) -> $crate::Result<()> {
                 unsafe {
-                    Interceptor::replace(target, thunk)?;
+                    $crate::Interceptor::replace(target, thunk)?;
                     ADDR = target;
                 }
                 Ok(())
             }
 
-            pub unsafe fn revert() -> interceptor::Result<()> {
+            pub unsafe fn revert() -> $crate::Result<()> {
                 unsafe {
-                    Interceptor::revert(ADDR)?;
+                    $crate::Interceptor::revert(ADDR)?;
                     ADDR = 0;
                 }
                 Ok(())
             }
 
             pub unsafe fn original() -> *mut u8 {
-                unsafe { Interceptor::original(ADDR) }.unwrap_or(ADDR) as *mut u8
+                unsafe { $crate::Interceptor::original(ADDR) }.unwrap_or(ADDR) as *mut u8
+            }
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! hook {
+    (
+        fn $name:ident($($arg:ident: $ty:ty),* $(,)?) $(-> $ret:ty)? $body:block
+    ) => {
+        pub mod $name {
+            use super::*;
+
+            #[allow(static_mut_refs)]
+            static mut ADDR: usize = 0;
+
+            pub unsafe extern "C" fn body($($arg: $ty),*) $(-> $ret)? {
+                $body
+            }
+
+            pub unsafe fn original() -> unsafe extern "C" fn($($ty),*) $(-> $ret)? {
+                let addr = unsafe { $crate::Interceptor::original(ADDR) }.unwrap_or(ADDR);
+                core::mem::transmute(addr)
+            }
+
+            pub unsafe fn replace(target: usize) -> $crate::Result<()> {
+                unsafe {
+                    let f: unsafe extern "C" fn() = core::mem::transmute(body as *const ());
+                    $crate::Interceptor::replace(target, f)?;
+                    ADDR = target;
+                }
+                Ok(())
+            }
+
+            pub unsafe fn revert() -> $crate::Result<()> {
+                unsafe {
+                    $crate::Interceptor::revert(ADDR)?;
+                    ADDR = 0;
+                }
+                Ok(())
             }
         }
     };
