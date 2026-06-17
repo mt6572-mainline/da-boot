@@ -3,6 +3,14 @@
 version = 4
 
 [[package]]
+name = "acon"
+version = "0.1.0"
+source = "git+https://github.com/rva3/acon/#5d4d38795044334ac9e46d583e43d809195675db"
+dependencies = [
+ "ufmt",
+]
+
+[[package]]
 name = "ahash"
 version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -112,7 +120,7 @@ dependencies = [
  "proc-macro-error2",
  "proc-macro2",
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -201,7 +209,7 @@ dependencies = [
  "heck",
  "proc-macro2",
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -278,6 +286,7 @@ checksum = "790eea4361631c5e7d22598ecd5723ff611904e3344ce8720784c93e3d83d40b"
 name = "da-boot"
 version = "0.1.0"
 dependencies = [
+ "acon",
  "anyhow",
  "clap",
  "clap-num",
@@ -285,11 +294,11 @@ dependencies = [
  "da-params",
  "da-patcher",
  "da-protocol",
- "da-soc",
  "derive-ctor",
  "derive_more",
- "hacc",
+ "hacc 0.1.0 (git+https://github.com/shomykohai/hacc)",
  "kaiko",
+ "kdam",
  "memchr",
  "rustyline",
  "serialport",
@@ -309,18 +318,31 @@ dependencies = [
  "derive_more",
  "proc-macro2",
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
+]
+
+[[package]]
+name = "da-cli-ext"
+version = "0.1.0"
+dependencies = [
+ "hacc 0.1.0 (git+https://github.com/rva3/hacc)",
 ]
 
 [[package]]
 name = "da-params"
 version = "0.1.0"
+dependencies = [
+ "acon",
+]
 
 [[package]]
 name = "da-patcher"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "clap",
+ "clap-num",
+ "da-cli-ext",
  "kaiko",
 ]
 
@@ -337,10 +359,6 @@ dependencies = [
  "thiserror",
  "ufmt",
 ]
-
-[[package]]
-name = "da-soc"
-version = "0.1.0"
 
 [[package]]
 name = "darling"
@@ -362,7 +380,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "strsim",
- "syn 2.0.117",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -373,7 +391,7 @@ checksum = "ac3984ec7bd6cfa798e62b4a642426a5be0e68f9401cfc2a01e3fa9ea2fcdb8d"
 dependencies = [
  "darling_core",
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -385,7 +403,7 @@ dependencies = [
  "heck",
  "proc-macro2",
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -407,7 +425,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "rustc_version",
- "syn 2.0.117",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -485,6 +503,17 @@ dependencies = [
  "r-efi 6.0.0",
  "wasip2",
  "wasip3",
+]
+
+[[package]]
+name = "hacc"
+version = "0.1.0"
+source = "git+https://github.com/rva3/hacc#c230c3becbf932159680a65c9cd040739e0c3e20"
+dependencies = [
+ "bilge",
+ "memchr",
+ "thiserror",
+ "zerocopy",
 ]
 
 [[package]]
@@ -617,7 +646,6 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 [[package]]
 name = "kaiko"
 version = "0.1.0"
-source = "git+https://github.com/rva3/kaiko#e3561ac58426201dfdd0c733c99be4155ff7efd5"
 dependencies = [
  "ahash",
  "memchr",
@@ -626,6 +654,16 @@ dependencies = [
  "tracing",
  "yaxpeax-arch",
  "yaxpeax-arm",
+]
+
+[[package]]
+name = "kdam"
+version = "0.6.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d847be338ef16a13f97637c062d97fb52ebe0ff3b77fa18456d5ed366317e4f7"
+dependencies = [
+ "terminal_size",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -779,7 +817,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "479ca8adacdd7ce8f1fb39ce9ecccbfe93a3f1344b3d0d97f20bc0196208f62b"
 dependencies = [
  "proc-macro2",
- "syn 2.0.117",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -853,6 +891,7 @@ dependencies = [
 name = "rpc"
 version = "0.1.0"
 dependencies = [
+ "acon",
  "bump",
  "da-params",
  "da-protocol",
@@ -945,7 +984,7 @@ checksum = "d540f220d3187173da220f885ab66608367b6574e925011a9353e4badda91d79"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -1032,9 +1071,9 @@ dependencies = [
 
 [[package]]
 name = "syn"
-version = "2.0.117"
+version = "2.0.118"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e665b8803e7b1d2a727f4023456bbbbe74da67099c585258af0ad9c5013b9b99"
+checksum = "1b9ae57f904213ebb649ce6895b8a66c66f0203b9319718f69a5612a065b1422"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1061,6 +1100,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "terminal_size"
+version = "0.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "230a1b821ccbd75b185820a1f1ff7b14d21da1e442e22c0863ea5f08771a8874"
+dependencies = [
+ "rustix",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "thiserror"
 version = "2.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1077,7 +1126,7 @@ checksum = "ebc4ee7f67670e9b64d05fa4253e753e016c6c95ff35b89b7941d6b856dec1d5"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -1099,7 +1148,7 @@ checksum = "7490cfa5ec963746568740651ac6781f701c9c5ea257c58e057f3ba8cf69e8da"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
 ]
 
 [[package]]
@@ -1442,7 +1491,7 @@ dependencies = [
  "heck",
  "indexmap",
  "prettyplease",
- "syn 2.0.117",
+ "syn 2.0.118",
  "wasm-metadata",
  "wit-bindgen-core",
  "wit-component",
@@ -1458,7 +1507,7 @@ dependencies = [
  "prettyplease",
  "proc-macro2",
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
  "wit-bindgen-core",
  "wit-bindgen-rust",
 ]
@@ -1549,7 +1598,7 @@ checksum = "0b631b19d36a892ab55420c92dbc83ccd79274f25be714855d3074aa71cab639"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.117",
+ "syn 2.0.118",
 ]
 
 [[package]]
