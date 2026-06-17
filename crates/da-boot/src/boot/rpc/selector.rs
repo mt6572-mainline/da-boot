@@ -1,10 +1,14 @@
 use std::{borrow::Cow, fs, io::Write, process::Command};
 
+use acon::SoC;
 use anyhow::{Context, Result};
 use da_params::{MAGIC, PayloadParams};
 use da_patcher::{
     Extract,
-    lk::{mt_part_generic_read::MtPartGenericRead, mt_part_get_partition::MtPartGetPartition},
+    lk::{
+        get_part::GetPart, mt_part_generic_read::MtPartGenericRead,
+        mt_part_get_partition::MtPartGetPartition,
+    },
     preloader::bldr_jump::BldrJump,
 };
 use da_protocol::{HookId, LKRunnerParams, Message, PreloaderRunnerParams, Protocol, Response};
@@ -13,28 +17,19 @@ use memchr::memmem;
 use tempfile::NamedTempFile;
 
 use crate::{
-    BootArgument, BootMode, Port, State,
-    boot::{give_me_bytes_please, rpc::ext::HostExtensions},
+    BootMode, Port, State,
+    boot::{give_me_bytes_please, lk_arg::get_for_soc, rpc::ext::HostExtensions},
     repl::run_repl,
     run_payload,
 };
 
 pub fn run_rpc_preloader(state: &mut State, mut port: Port) -> Result<()> {
-    let da_addr = state.soc.da_dram_addr();
+    let (bldr_jump, da_addr) = BldrJump::new(&state.preloader.analyzer)
+        .extract()
+        .context("Failed to get bldr_jump fn ptr")?;
+    let pl_params = PreloaderRunnerParams::new(bldr_jump);
+
     let mut payload = pl_payload()?;
-
-    for image in &state.upload {
-        let addr = image.upload_address();
-        if state
-            .params
-            .blacklist_reloc(addr..addr + image.len() as u32 + 1)
-            .is_err()
-        {
-            anyhow::bail!("Failed blacklisting range: {addr:#x}");
-        }
-
-        println!("Reserved memory: {addr:#x}");
-    }
 
     if let Some(ref image) = state.lk {
         let addr = image.file.upload_address();
@@ -55,11 +50,6 @@ pub fn run_rpc_preloader(state: &mut State, mut port: Port) -> Result<()> {
 
     let mut protocol = start_rpc(port)?;
     println!("Got loader sync !");
-
-    let bldr_jump = BldrJump::new(&state.preloader.analyzer)
-        .extract()
-        .context("Failed to get bldr_jump fn ptr")?;
-    let pl_params = PreloaderRunnerParams::new(bldr_jump);
 
     protocol.send_message(Message::SetParams(da_protocol::ParamsType::Preloader(
         pl_params,
@@ -82,6 +72,7 @@ pub fn run_rpc_preloader(state: &mut State, mut port: Port) -> Result<()> {
         }
     }
 
+    let (mut bootarg_base, mut bootarg_size) = (0, 0);
     if let Some(ref lk) = state.lk {
         let addr = lk.file.upload_address();
         println!("Uploading LK to {addr:#x}");
@@ -96,10 +87,31 @@ pub fn run_rpc_preloader(state: &mut State, mut port: Port) -> Result<()> {
         }
 
         println!("Preparing boot argument for LK");
-        protocol.upload(
-            lk.boot_argument_addr,
-            give_me_bytes_please(&BootArgument::lk(state.lk_mode)),
-        )?;
+        let bootarg = get_for_soc(
+            state.soc,
+            state.lk_mode,
+            state.dram_size_per_rank,
+            state.dram_ranks,
+        );
+        let bytes = bootarg.as_bytes();
+        bootarg_size = bytes.len() as u32;
+
+        // dynamically passed in R4
+        protocol.send_message(Message::GetFreeRange { size: bootarg_size })?;
+        let Response::Range(Some(start)) = protocol.read_response()? else {
+            anyhow::bail!("Failed to request free range for {bootarg_size} bytes");
+        };
+        println!("Boot argument will be set to {start:#x}");
+
+        bootarg_base = start;
+        protocol.send_message(Message::BlacklistRange(start..start + bootarg_size + 1))?;
+        if !protocol.read_response().is_ok_and(|r| r.is_ack()) {
+            anyhow::bail!("Failed blacklisting {addr:#x}");
+        }
+
+        println!("Reserved memory: {start:#x} (LK boot argument)");
+
+        protocol.upload(start, bytes)?;
     }
 
     match state.mode {
@@ -158,6 +170,12 @@ pub fn run_rpc_preloader(state: &mut State, mut port: Port) -> Result<()> {
                         .arg(kernel.path())
                         .arg("--ramdisk")
                         .arg(ramdisk.path())
+                        .arg("--base")
+                        .arg("0x40000000")
+                        .arg("--kernel_offset")
+                        .arg("0x8000")
+                        .arg("--ramdisk_offset")
+                        .arg("0x4000000")
                         .arg("-o")
                         .arg(out.path())
                         .output()
@@ -196,9 +214,15 @@ pub fn run_rpc_preloader(state: &mut State, mut port: Port) -> Result<()> {
             let mt_part_generic_read = MtPartGenericRead::new(&image.analyzer)
                 .extract()
                 .context("Failed to extract mt_part_generic_read")?;
-            let mt_part_get_partition = MtPartGetPartition::new(&image.analyzer)
-                .extract()
-                .context("Failed to extract mt_part_get_partition")?;
+            let mt_part_get_partition = match &state.soc {
+                SoC::MT6572 => MtPartGetPartition::new(&image.analyzer)
+                    .extract()
+                    .context("Failed to extract mt_part_get_partition")?,
+                SoC::MT6595 => GetPart::new(&image.analyzer)
+                    .extract()
+                    .context("Failed to extract get_part")?,
+                _ => unreachable!(),
+            };
             let lk_params =
                 LKRunnerParams::new(mt_part_generic_read | 1, mt_part_get_partition | 1, start);
             protocol.send_message(Message::SetParams(da_protocol::ParamsType::LK(lk_params)))?;
@@ -225,8 +249,8 @@ pub fn run_rpc_preloader(state: &mut State, mut port: Port) -> Result<()> {
     println!("Jump to {jump:#x}");
     protocol.send_message(Message::jump(
         jump,
-        state.lk.as_ref().map(|lk| lk.boot_argument_addr),
-        Some(250),
+        Some(bootarg_base as u32),
+        Some(bootarg_size as u32),
     ))?;
     if protocol.read_response().is_ok_and(|r| r.is_nack()) {
         anyhow::bail!("Error on jump");

@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use da_protocol::{Message, Protocol};
+use kdam::{BarExt, tqdm};
 
 use crate::Port;
 
@@ -21,11 +22,14 @@ impl HostExtensions for Protocol<Port> {
     }
 
     fn upload(&mut self, addr: u32, data: &[u8]) -> Result<()> {
+        let mut pb = tqdm!(total = data.len(), desc = format!("{addr:#x}"), unit = "B");
+
         for (i, data) in data.chunks(CHUNK_SIZE).enumerate() {
             let addr = addr + (i * CHUNK_SIZE) as u32;
             self.send_message(Message::write(addr, data.len() as u32))?;
             self.io.write_all(data)?;
             self.read_response()?;
+            pb.update(data.len())?;
         }
 
         Ok(())

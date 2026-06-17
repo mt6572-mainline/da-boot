@@ -1,5 +1,6 @@
 use std::{thread::sleep, time::Duration};
 
+use acon::Memory;
 use anyhow::{Context, Result};
 use da_params::MemoryRange;
 use da_protocol::Message;
@@ -19,8 +20,8 @@ use crate::{
 pub fn run_brom(state: &mut State, mut port: Port, device_mode: DeviceMode) -> Result<()> {
     assert!(device_mode.is_brom());
 
-    // BUG: 0x2000000~0x2001000 is unusable.
-    state.params.memory = MemoryRange::new(0x2001000, 0x2020000);
+    let l2 = state.soc.l2_sram();
+    state.params.memory = MemoryRange::new(l2.start, l2.end);
     state.params.ptr_dl = 0x40B9C4 | 1;
     state.params.ptr_ul = 0x40BA4A | 1;
 

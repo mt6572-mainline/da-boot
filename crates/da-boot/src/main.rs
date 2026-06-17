@@ -5,12 +5,12 @@ use std::{
     time::Duration,
 };
 
+use acon::{MMIO, SoC};
 use anyhow::{Context, Result};
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Parser, Subcommand};
 use clap_num::maybe_hex;
 use da_params::PayloadParams;
-use da_patcher::{Extract, preloader::lk_argument::LKRanges};
-use da_soc::SoC;
+use da_patcher::{Extract, preloader::lk_base::LKBase};
 use derive_ctor::ctor;
 use derive_more::IsVariant;
 use hacc::{Image, Preloader, TryRead};
@@ -24,6 +24,7 @@ type Port = Box<dyn SerialPort>;
 use crate::{
     boot::{
         bootrom::run_brom,
+        lk_arg::LkBootMode,
         preloader::{invalidate_ready, mt6572_preloader_workaround, run_preloader},
     },
     commands::{
@@ -88,6 +89,14 @@ struct Cli {
     #[arg(short, long)]
     lk_mode: Option<LkBootMode>,
 
+    /// DRAM size per rank
+    #[arg(long, value_parser=maybe_hex::<u32>)]
+    dram_size_per_rank: Option<u32>,
+
+    /// DRAM ranks
+    #[arg(long)]
+    dram_ranks: Option<u32>,
+
     /// zImage path
     #[arg(short, long)]
     kernel: Option<FileContentSpec>,
@@ -108,66 +117,6 @@ struct Cli {
     mode: BootMode,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum)]
-#[clap(rename_all = "kebab_case")]
-#[repr(u32)]
-enum LkBootMode {
-    #[default]
-    Normal,
-    Meta,
-    Recovery,
-    SwReboot,
-    Factory,
-    Advmeta,
-    AteFactory,
-    Alarm,
-    Fastboot = 99,
-    Download,
-}
-
-#[derive(Default)]
-#[repr(C)]
-struct BootArgument {
-    magic: u32,
-    mode: u32,
-    e_flag: u32,
-    log_port: u32,
-    log_baudrate: u32,
-    log_enable: u8,
-    reserved: [u8; 3],
-    dram_rank_num: u32,
-    dram_rank_size: [u32; 4],
-    boot_reason: u32,
-    meta_com_type: u32,
-    meta_com_id: u32,
-    boot_time: u32,
-    /* da_info_t */
-    addr: u32,
-    arg1: u32,
-    arg2: u32,
-    /* SEC_LIMIT */
-    magic_num: u32,
-    forbid_mode: u32,
-}
-
-impl BootArgument {
-    pub fn lk(mode: LkBootMode) -> Self {
-        Self {
-            magic: 0x504c504c,
-            mode: mode as u32,
-            e_flag: 0,
-            log_port: 0x11005000,
-            log_baudrate: 921600,
-            log_enable: 1,
-            dram_rank_num: 2,
-            dram_rank_size: [0x20000000, 0x20000000, 0, 0],
-            boot_reason: 4,
-            boot_time: 1337,
-            ..Default::default()
-        }
-    }
-}
-
 #[derive(Debug, Copy, Clone, IsVariant)]
 enum DeviceMode {
     Brom,
@@ -183,7 +132,6 @@ struct FileAndAnalyzer {
 #[derive(ctor)]
 struct LKState {
     file_and_analyzer: FileAndAnalyzer,
-    boot_argument_addr: u32,
 }
 
 impl Deref for LKState {
@@ -199,6 +147,9 @@ struct State {
 
     mode: BootMode,
     lk_mode: LkBootMode,
+
+    dram_size_per_rank: u32,
+    dram_ranks: u32,
 
     upload: Vec<UploadFile>,
     preloader: FileAndAnalyzer,
@@ -319,6 +270,7 @@ fn run(mut state: State, crash: bool) -> Result<()> {
 
     let soc = SoC::try_from_hwcode(hwcode).context("Sorry, your SoC is not supported yet")?;
     state.soc = soc;
+    state.params.soc = soc;
 
     match device_mode {
         DeviceMode::Brom => run_brom(&mut state, port, device_mode).context("Error on BootROM run"),
@@ -398,19 +350,17 @@ fn main() -> Result<()> {
             content
         };
 
-        let (lk_base, argument) = LKRanges::new(&pl.analyzer)
+        let lk_base = LKBase::new(&pl.analyzer)
             .extract()
             .context("Failed to extract LK data")?;
 
         println!("Loaded LK ({} bytes, base: {lk_base:#x})", content.len());
 
-        if params
-            .blacklist_reloc(argument..argument + size_of::<BootArgument>() as u32 + 1)
-            .is_err()
-        {
-            anyhow::bail!("Can't blacklist LK range");
+        // better safe than sorry
+        let bss = lk_base + content.len() as u32;
+        if params.blacklist_reloc(bss..bss + (512 * 1024)).is_err() {
+            anyhow::bail!("Failed to blacklist LK BSS range");
         }
-        println!("Reserved memory: {argument:#x} (LK boot argument)");
 
         let analyzer = Analyzer::try_new(
             content.as_vec().clone().into_boxed_slice(),
@@ -422,7 +372,7 @@ fn main() -> Result<()> {
         let file = UploadFile::from_content(content, lk_base);
 
         let f_and_a = FileAndAnalyzer::new(file, analyzer);
-        Some(LKState::new(f_and_a, argument))
+        Some(LKState::new(f_and_a))
     } else {
         None
     };
@@ -493,6 +443,10 @@ fn main() -> Result<()> {
             } else if which("mkbootimg").is_err() {
                 anyhow::bail!("mkbootimg is not installed for the LK mode");
             }
+
+            if cli.dram_size_per_rank.is_none() || cli.dram_ranks.is_none() {
+                anyhow::bail!("Unknown DRAM size. Please provide DRAM rank size and rank count");
+            }
         }
         // REPL doesn't really need anything except preloader
         BootMode::REPL => {
@@ -508,6 +462,8 @@ fn main() -> Result<()> {
         soc: SoC::MT6572,
         mode: cli.mode,
         lk_mode: cli.lk_mode.unwrap_or_default(),
+        dram_size_per_rank: cli.dram_size_per_rank.unwrap_or_default(),
+        dram_ranks: cli.dram_ranks.unwrap_or_default(),
         upload: input,
         preloader: pl,
         lk,

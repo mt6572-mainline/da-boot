@@ -1,3 +1,4 @@
+use acon::Memory;
 use anyhow::{Context, Result};
 use da_params::MemoryRange;
 use da_patcher::{Extract, preloader::usb_ptr::PreloaderDLULPtr};
@@ -12,7 +13,8 @@ pub fn run_preloader(state: &mut State, port: Port, device_mode: DeviceMode) -> 
 
     let port = mt6572_preloader_workaround(port)?;
 
-    state.params.memory = MemoryRange::new(0x80000000, 0x90000000);
+    let start = state.soc.dram_start();
+    state.params.memory = MemoryRange::new(start, start + (512 * 1024 * 1024));
     let (ptr_dl, ptr_ul) = PreloaderDLULPtr::new(&state.preloader.analyzer)
         .extract()
         .context("Failed to extract Preloader function pointers")?;

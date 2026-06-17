@@ -1,4 +1,5 @@
 pub mod bootrom;
+pub mod lk_arg;
 pub mod preloader;
 pub mod rpc;
 

@@ -16,7 +16,6 @@ derive-ctor = { workspace = true }
 da-boot-macros = { path = "../da-boot-macros" }
 simpleport = { workspace = true, features = ["std"] }
 da-protocol = { path = "../da-protocol", features = ["std"] }
-da-soc = { path = "../da-soc" }
 rustyline = "18.0.0"
 kaiko = { workspace = true }
 memchr = "2.8.1"
@@ -26,3 +25,5 @@ anyhow = { version = "1.0.102", features = ["backtrace"] }
 which = "8.0.2"
 tempfile = "3.27.0"
 hacc = { git = "https://github.com/shomykohai/hacc", version = "0.1.0" }
+acon = { workspace = true }
+kdam = "0.6.4"
