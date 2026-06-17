@@ -3,13 +3,13 @@ use core::ptr;
 use acon::MMIO;
 use ufmt::uWrite;
 
-use crate::setup::get_soc;
+use crate::setup::get_params;
 
 pub struct Serial;
 
 impl Serial {
     pub fn putc(c: u8) {
-        let mmio = get_soc().uart0();
+        let mmio = get_params().soc.uart0();
 
         unsafe {
             while (ptr::read_volatile((mmio + 0x14) as *const u32) & 0x20) == 0 {}

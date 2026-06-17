@@ -1,24 +1,21 @@
 use core::{
     arch::{asm, global_asm},
-    mem::MaybeUninit,
     ptr::{self, copy_nonoverlapping},
 };
 
-use acon::{MMIO, SoC};
+use acon::SoC;
 use da_params::{BlacklistMode, CURRENT_VERSION, MAGIC, PayloadParams};
 use shared::flush_icache;
 
 use crate::{c_function, err::ParamsError, uart_print, uart_printfln, uart_println};
 
 #[unsafe(link_section = ".params")]
-pub static mut PARAMS: PayloadParams = PayloadParams::new(0..0, 0, 0);
-
-pub static mut SOC: MaybeUninit<SoC> = MaybeUninit::uninit();
+pub static mut PARAMS: PayloadParams = PayloadParams::new(0..0, 0, 0, SoC::MT6572);
 
 #[inline(always)]
 pub fn banner() {
     uart_println!("");
-    uart_printfln!("Hello from Rust and {} :)", get_soc());
+    uart_printfln!("Hello from Rust and {} :)", get_params().soc);
 }
 
 #[inline(always)]
@@ -65,10 +62,6 @@ pub fn get_params_mut() -> &'static mut PayloadParams {
         let params_ptr = register_black_box_mut(&raw mut PARAMS);
         &mut *params_ptr
     }
-}
-
-pub fn get_soc() -> &'static SoC {
-    unsafe { SOC.assume_init_ref() }
 }
 
 #[inline(always)]
@@ -185,8 +178,6 @@ global_asm!(
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn app(runtime_base: u32) -> ! {
-    unsafe { SOC = MaybeUninit::new(SoC::try_from_mmio().unwrap()) };
-
     uart_printfln!("running at {:#x}", runtime_base);
 
     if let Err(e) = unsafe { verify_params() } {

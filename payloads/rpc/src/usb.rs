@@ -8,7 +8,7 @@ use simpleport::{SimpleRead, SimpleWrite};
 
 use crate::{
     LK_PARAMS, PRELOADER_PARAMS, c_function, die,
-    setup::{get_params, get_params_mut, get_soc, is_bootrom},
+    setup::{get_params, get_params_mut},
     uart_printfln, uart_println,
 };
 
@@ -77,11 +77,15 @@ pub unsafe fn handler() -> ! {
                     Response::Ack
                 },
                 Message::Jump { addr, r0, r1 } => unsafe {
-                    if is_bootrom() {
+                    #[cfg(not(feature = "pl"))]
+                    {
                         asm!("dsb; isb");
                         c_function!(fn(u32, u32), addr as usize)(r0.unwrap_or_default(), r1.unwrap_or_default());
                         Response::Nack(ProtocolError::Unreachable)
-                    } else {
+                    }
+
+                    #[cfg(feature = "pl")]
+                    {
                         if let Some(ref params) = PRELOADER_PARAMS {
                             asm!("dsb; isb");
                             c_function!(fn(u32, u32, u32), params.ptr_bldr_jump as usize | 1)(addr, r0.unwrap_or_default(), r1.unwrap_or_default());
@@ -92,7 +96,7 @@ pub unsafe fn handler() -> ! {
                     }
                 },
                 Message::Reset => unsafe {
-                    ((get_soc().toprgu() + 0x14) as *mut u32).write_volatile(0x1209);
+                    ((get_params().soc.toprgu() + 0x14) as *mut u32).write_volatile(0x1209);
                     Response::ack()
                 },
                 Message::Hook(id) => {
@@ -116,13 +120,23 @@ pub unsafe fn handler() -> ! {
                     if get_params_mut().blacklist_dl(range).is_ok() {
                         Response::Ack
                     } else {
+                        uart_println!("can't blacklist anymore, increase max ranges");
+                        uart_println!("blacklisted ranges:");
+                        for range in get_params().blacklist {
+                            let range = range.to_range();
+                            uart_printfln!("\t{:#x}..{:#x}", range.start, range.end);
+                        }
                         Response::Nack(ProtocolError::NotSupported)
                     }
                 }
                 Message::SetParams(params) => unsafe {
-                    if is_bootrom() {
+                    #[cfg(not(feature = "pl"))]
+                    {
                         Response::Nack(ProtocolError::NotSupported)
-                    } else {
+                    }
+
+                    #[cfg(feature = "pl")]
+                    {
                         match params {
                             ParamsType::Preloader(pl) => {
                                 if pl.is_valid() {
