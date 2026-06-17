@@ -5,7 +5,6 @@
 
 use bump::BumpAllocator;
 use da_protocol::{LKRunnerParams, PreloaderRunnerParams};
-use shared::{Serial, uart_print, uart_println};
 
 use crate::{
     setup::{banner, die, get_params, get_params_mut},
@@ -14,10 +13,10 @@ use crate::{
 use core::panic::PanicInfo;
 
 mod err;
-mod exception;
 mod hooks;
 mod macros;
 mod setup;
+mod uart;
 mod usb;
 
 const HEAP_SIZE: usize = 1 * 1024 * 1024;

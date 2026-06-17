@@ -1,14 +1,15 @@
 use core::{arch::asm, convert::Infallible, mem::transmute};
 
+use acon::MMIO;
 use da_protocol::{HookId, Message, ParamsType, Protocol, ProtocolError, Response};
 use derive_ctor::ctor;
-use shared::{Serial, flush_cache, uart_print, uart_println};
+use shared::flush_cache;
 use simpleport::{SimpleRead, SimpleWrite};
 
 use crate::{
     LK_PARAMS, PRELOADER_PARAMS, c_function, die,
-    setup::{get_params, get_params_mut, is_bootrom},
-    uart_printfln,
+    setup::{get_params, get_params_mut, get_soc, is_bootrom},
+    uart_printfln, uart_println,
 };
 
 #[cfg(feature = "pl")]
@@ -91,7 +92,7 @@ pub unsafe fn handler() -> ! {
                     }
                 },
                 Message::Reset => unsafe {
-                    (0x10007014 as *mut u32).write_volatile(0x1209);
+                    ((get_soc().toprgu() + 0x14) as *mut u32).write_volatile(0x1209);
                     Response::ack()
                 },
                 Message::Hook(id) => {

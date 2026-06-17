@@ -1,20 +1,24 @@
 use core::{
     arch::{asm, global_asm},
+    mem::MaybeUninit,
     ptr::{self, copy_nonoverlapping},
 };
 
+use acon::{MMIO, SoC};
 use da_params::{BlacklistMode, CURRENT_VERSION, MAGIC, PayloadParams};
-use shared::{Serial, flush_icache, uart_print, uart_println};
+use shared::flush_icache;
 
-use crate::{c_function, err::ParamsError, uart_printfln};
+use crate::{c_function, err::ParamsError, uart_print, uart_printfln, uart_println};
 
 #[unsafe(link_section = ".params")]
 pub static mut PARAMS: PayloadParams = PayloadParams::new(0..0, 0, 0);
 
+pub static mut SOC: MaybeUninit<SoC> = MaybeUninit::uninit();
+
 #[inline(always)]
 pub fn banner() {
     uart_println!("");
-    uart_println!("Hello from Rust :)");
+    uart_printfln!("Hello from Rust and {} :)", get_soc());
 }
 
 #[inline(always)]
@@ -63,6 +67,10 @@ pub fn get_params_mut() -> &'static mut PayloadParams {
     }
 }
 
+pub fn get_soc() -> &'static SoC {
+    unsafe { SOC.assume_init_ref() }
+}
+
 #[inline(always)]
 pub unsafe fn verify_params() -> Result<(), ParamsError> {
     unsafe {
@@ -91,7 +99,7 @@ pub unsafe fn verify_params() -> Result<(), ParamsError> {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn is_bootrom() -> bool {
-    unsafe { where_am_i() < 0x80000000 }
+    unsafe { where_am_i() < 0x40000000 }
 }
 
 pub fn die(why: &str) -> ! {
@@ -107,7 +115,6 @@ unsafe extern "C" {
     static _rel_dyn_end: u32;
     static _bss_start: u32;
     static _bss_end: u32;
-    static vector_table: u32;
     static _image_end: u32;
 }
 
@@ -176,23 +183,11 @@ global_asm!(
 "
 );
 
-unsafe fn setup_vectors(runtime_base: u32) {
-    let addr = &raw const vector_table as u32 + runtime_base;
-
-    unsafe {
-        asm!(
-            "mcr p15, 0, {0}, c12, c0, 0",
-            in(reg) addr,
-            options(nostack, nomem)
-        );
-    }
-}
-
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn app(runtime_base: u32) -> ! {
-    uart_printfln!("running at {:#x}", runtime_base);
+    unsafe { SOC = MaybeUninit::new(SoC::try_from_mmio().unwrap()) };
 
-    unsafe { setup_vectors(runtime_base) };
+    uart_printfln!("running at {:#x}", runtime_base);
 
     if let Err(e) = unsafe { verify_params() } {
         uart_printfln!("error on verifying params: {}", e);

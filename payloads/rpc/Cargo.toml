@@ -24,3 +24,4 @@ da-protocol = { path = "../../crates/da-protocol" }
 da-params = { path = "../../crates/da-params" }
 derive-ctor = { workspace = true }
 ufmt = { workspace = true }
+acon = { git = "https://github.com/rva3/acon/", version = "0.1.0", features = ["ufmt"] }

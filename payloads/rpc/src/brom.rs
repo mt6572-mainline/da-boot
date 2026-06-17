@@ -4,7 +4,6 @@
 #![allow(static_mut_refs)]
 
 use da_protocol::{LKRunnerParams, PreloaderRunnerParams};
-use shared::{Serial, uart_print, uart_println};
 
 use crate::{
     setup::{banner, die},
@@ -13,9 +12,9 @@ use crate::{
 use core::panic::PanicInfo;
 
 mod err;
-mod exception;
 mod macros;
 mod setup;
+mod uart;
 mod usb;
 
 static mut PRELOADER_PARAMS: Option<PreloaderRunnerParams> = None;
