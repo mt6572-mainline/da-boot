@@ -5,7 +5,7 @@ use crate::{Extract, extractor};
 
 extractor!(BldrJump);
 impl Extract for BldrJump<'_> {
-    type Value = u32;
+    type Value = (u32, u32);
 
     fn extract(&self) -> Result<Self::Value> {
         const JUMP_DA: &str = "%s usbdl_jump_da: %x\n";
@@ -34,6 +34,11 @@ impl Extract for BldrJump<'_> {
             .last()
             .context("calls in the bldr_jump block must exist")?;
 
-        Ok(bldr_jump)
+        // what a hack.
+        let da_addr = next
+            .data_refs()
+            .find_map(|(_, v)| ((v & !0xffff) == v).then_some(v))
+            .context("DA addr not found")?;
+        Ok((bldr_jump, da_addr))
     }
 }
