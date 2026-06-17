@@ -6,3 +6,6 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0.102"
 kaiko = { workspace = true }
+clap = { workspace = true }
+clap-num = { workspace = true }
+da-cli-ext = { path = "../da-cli-ext" }

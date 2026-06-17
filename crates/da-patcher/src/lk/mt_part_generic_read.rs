@@ -20,17 +20,18 @@ impl Extract for MtPartGenericRead<'_> {
             // block must NOT have POP
             .filter(|b| !b.code().any(|c| c.instruction().opcode.is_pop()))
             .find(|b| {
-                b.code().any(|c| {
-                    if let Operand::RegDerefPreindexOffset(_, offset, _, _) =
-                        c.instruction().operands[1]
-                        && c.instruction().opcode == Opcode::STR
-                    {
-                        // read = 0x10
-                        offset == 0x10
-                    } else {
-                        false
-                    }
-                })
+                b.code().count() < 10
+                    && b.code().any(|c| {
+                        if let Operand::RegDerefPreindexOffset(_, offset, _, _) =
+                            c.instruction().operands[1]
+                            && c.instruction().opcode == Opcode::STR
+                        {
+                            // read = 0x10
+                            offset == 0x10
+                        } else {
+                            false
+                        }
+                    })
             })
             .context("no block with read fn")?;
 
