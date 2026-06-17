@@ -2,6 +2,8 @@
 #![feature(const_trait_impl, const_default)]
 use core::ops::Range;
 
+use acon::SoC;
+
 use crate::err::Error;
 
 pub mod err;
@@ -49,6 +51,8 @@ pub struct PayloadParams {
     pub ptr_dl: u32,
     /// USB upload function pointer
     pub ptr_ul: u32,
+    /// Current SoC
+    pub soc: SoC,
 }
 
 const impl Default for PayloadParams {
@@ -60,12 +64,13 @@ const impl Default for PayloadParams {
             blacklist: [Default::default(); 8],
             ptr_dl: 0,
             ptr_ul: 0,
+            soc: SoC::MT6572,
         }
     }
 }
 
 impl PayloadParams {
-    pub const fn new(memory: Range<u32>, ptr_dl: u32, ptr_ul: u32) -> Self {
+    pub const fn new(memory: Range<u32>, ptr_dl: u32, ptr_ul: u32, soc: SoC) -> Self {
         Self {
             magic: MAGIC,
             version: CURRENT_VERSION,
@@ -73,6 +78,7 @@ impl PayloadParams {
             blacklist: [Default::default(); 8],
             ptr_dl,
             ptr_ul,
+            soc,
         }
     }
 
