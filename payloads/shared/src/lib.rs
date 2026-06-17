@@ -1,79 +1,8 @@
 #![no_std]
-use core::{arch::asm, fmt::Write, ptr};
-
-#[cfg(feature = "ufmt")]
-use ufmt::uWrite;
-
-pub const PRELOADER_BASE: usize = 0x2007500;
-pub const LK_BASE: usize = 0x80020000;
-
-const UART0_LSR: usize = 0x11005000 + 0x14;
-const UART0_FCR: usize = 0x11005000 + 0x08;
-const UART0_THR: usize = 0x11005000;
+use core::arch::asm;
 
 /* Cortex-A7 cache line size */
 const CACHE_LINE: usize = 64;
-
-pub struct Serial;
-
-impl Serial {
-    /// Enable FIFO to spend less time in the loop
-    #[inline]
-    pub fn enable_fifo() {
-        unsafe {
-            ptr::write_volatile(
-                UART0_FCR as *mut u32,
-                (1 << 0) | // Enable FIFO
-                (1 << 1) | // Reset RX FIFO
-                (1 << 2) | // Reset TX FIFO
-                (1 << 4) | (1 << 5), // TX FIFO threshold = 14
-            );
-        }
-    }
-
-    /// Disable FIFO
-    #[inline]
-    pub fn disable_fifo() {
-        unsafe {
-            while !Self::idle() {}
-            ptr::write_volatile(UART0_FCR as *mut u32, 0);
-        }
-    }
-
-    /// Check if FIFO and register are empty
-    #[inline]
-    pub fn idle() -> bool {
-        unsafe { (ptr::read_volatile(UART0_LSR as *const u32) & 0x40) != 0 }
-    }
-
-    pub fn putc(c: u8) {
-        unsafe {
-            while (ptr::read_volatile(UART0_LSR as *const u32) & 0x20) == 0 {}
-            ptr::write_volatile(UART0_THR as *mut u32, c as u32);
-        }
-    }
-}
-
-#[cfg(feature = "ufmt")]
-impl uWrite for Serial {
-    type Error = core::convert::Infallible;
-
-    fn write_str(&mut self, s: &str) -> Result<(), Self::Error> {
-        for c in s.as_bytes() {
-            Self::putc(*c);
-        }
-        Ok(())
-    }
-}
-
-impl Write for Serial {
-    fn write_str(&mut self, s: &str) -> core::fmt::Result {
-        for b in s.bytes() {
-            Serial::putc(b);
-        }
-        Ok(())
-    }
-}
 
 pub unsafe fn flush_cache(start_addr: usize, size: usize) {
     let start_addr = start_addr & !(CACHE_LINE - 1);
@@ -155,23 +84,5 @@ macro_rules! search {
     ($start:expr, $end:expr, $( $pat:expr ),+ $(,)?) => {{
         const PATTERN: &[u16] = &[$($pat),+];
         crate::search_pattern($start, $end, PATTERN)
-    }};
-}
-
-#[macro_export]
-macro_rules! uart_print {
-    ($s:expr) => {{
-        for c in $s.bytes() {
-            Serial::putc(c);
-        }
-    }};
-}
-
-#[macro_export]
-macro_rules! uart_println {
-    ($s:expr) => {{
-        uart_print!($s);
-        Serial::putc(b'\n');
-        Serial::putc(b'\r');
     }};
 }
