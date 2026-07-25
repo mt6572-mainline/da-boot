@@ -46,7 +46,7 @@ pub struct PayloadParams {
     /// Device memory range
     pub memory: MemoryRange,
     /// Memory ranges which shouldn't be picked or overwritten
-    pub blacklist: [BlacklistRange; 8],
+    pub blacklist: [BlacklistRange; 12],
     /// USB download function pointer
     pub ptr_dl: u32,
     /// USB upload function pointer
@@ -61,7 +61,7 @@ const impl Default for PayloadParams {
             magic: MAGIC,
             version: CURRENT_VERSION,
             memory: Default::default(),
-            blacklist: [Default::default(); 8],
+            blacklist: [Default::default(); 12],
             ptr_dl: 0,
             ptr_ul: 0,
             soc: SoC::MT6572,
@@ -75,7 +75,7 @@ impl PayloadParams {
             magic: MAGIC,
             version: CURRENT_VERSION,
             memory: MemoryRange::new(memory.start, memory.end),
-            blacklist: [Default::default(); 8],
+            blacklist: [Default::default(); 12],
             ptr_dl,
             ptr_ul,
             soc,
@@ -110,7 +110,7 @@ impl PayloadParams {
 
     /// Select usable memory range with `size`
     pub fn find_unused_range(&self, size: u32) -> Option<Range<u32>> {
-        // align to 8
+        // align to 12
         let aligned_size = size.checked_add(7)? & !7;
 
         let mut addr = self.memory.start;
