@@ -195,7 +195,8 @@ pub unsafe extern "C" fn app(runtime_base: u32) -> ! {
     };
 
     let addr = reloc_range.start;
-    if addr != runtime_base {
+    let overlaps = addr < (runtime_base + size) && runtime_base < (addr + size);
+    if addr != runtime_base && !overlaps {
         unsafe { copy_and_jump(runtime_base, addr, size) };
     } else {
         unsafe { fix_got(runtime_base) };
@@ -208,8 +209,14 @@ pub unsafe extern "C" fn app(runtime_base: u32) -> ! {
         }
 
         // prevent host from overwriting image
-        if get_params_mut().blacklist_dl(addr..addr + size).is_err() {
-            die("failed to blacklist image");
+        if overlaps {
+            if get_params_mut().blacklist_dl(runtime_base..runtime_base + size).is_err() {
+                die("failed to blacklist image");
+            }
+        } else {
+            if get_params_mut().blacklist_dl(addr..addr + size).is_err() {
+                die("failed to blacklist image");
+            }
         }
 
         // we need another range here, now for the stack
