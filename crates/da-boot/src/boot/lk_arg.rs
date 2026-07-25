@@ -89,6 +89,66 @@ impl BootArgument6572 {
 
 #[derive(Debug, Default, Clone, Copy)]
 #[repr(C)]
+pub struct DAInfo6595 {
+    pub addr: u32,
+    pub arg1: u32,
+    pub arg2: u32,
+    pub len: u32,
+    pub sig_len: u32,
+}
+
+#[derive(Debug, Default, Copy, Clone)]
+#[repr(C)]
+pub struct BootArgument6582 {
+    magic: u32,
+    mode: u32,
+    e_flag: u32,
+    log_port: u32,
+    log_baudrate: u32,
+    log_enable: u8,
+    part_num: u8,
+    reserved: [u8; 2],
+    dram_rank_num: u32,
+    dram_rank_size: [u32; 4],
+    boot_reason: u32,
+    meta_com_type: u32,
+    meta_com_id: u32,
+    boot_time: u32,
+    da_info: DAInfo6595,
+    sec_limit: SecLimit,
+    part_info: u32,
+    md_type: [u8; 4],
+    ddr_reserve_enable: u32,
+    ddr_reserve_success: u32,
+}
+
+impl BootArgument6582 {
+    pub fn lk(mode: LkBootMode, dram_size_per_rank: u32, dram_ranks: u32) -> Self {
+        let dram_rank_size = std::array::from_fn(|i| {
+            if i < dram_ranks as usize {
+                dram_size_per_rank
+            } else {
+                0
+            }
+        });
+        Self {
+            magic: 0x504c504c,
+            mode: mode as u32,
+            e_flag: 0,
+            log_port: 0x11002000,
+            log_baudrate: 921600,
+            log_enable: 1,
+            dram_rank_num: dram_ranks,
+            dram_rank_size: dram_rank_size,
+            boot_reason: 4,
+            boot_time: 1337,
+            ..Default::default()
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+#[repr(C)]
 pub struct Mblock {
     pub start: u64,
     pub size: u64,
@@ -101,16 +161,6 @@ pub struct Mblock {
 pub struct MemDesc {
     pub start: u64,
     pub size: u64,
-}
-
-#[derive(Debug, Default, Clone, Copy)]
-#[repr(C)]
-pub struct DAInfo6595 {
-    pub addr: u32,
-    pub arg1: u32,
-    pub arg2: u32,
-    pub len: u32,
-    pub sig_len: u32,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -248,6 +298,7 @@ impl BootArgument6595 {
 #[derive(Debug, Copy, Clone)]
 pub enum BootArgument {
     MT6572(BootArgument6572),
+    MT6582(BootArgument6582),
     MT6595(BootArgument6595),
 }
 
@@ -255,6 +306,7 @@ impl BootArgument {
     pub fn as_bytes(&self) -> &[u8] {
         match self {
             Self::MT6572(a) => give_me_bytes_please(a),
+            Self::MT6582(a) => give_me_bytes_please(a),
             Self::MT6595(a) => give_me_bytes_please(a),
         }
     }
@@ -269,6 +321,9 @@ pub fn get_for_soc(
     match soc {
         SoC::MT6572 => {
             BootArgument::MT6572(BootArgument6572::lk(mode, dram_size_per_rank, dram_ranks))
+        }
+        SoC::MT6582 => {
+            BootArgument::MT6582(BootArgument6582::lk(mode, dram_size_per_rank, dram_ranks))
         }
         SoC::MT6595 => {
             BootArgument::MT6595(BootArgument6595::lk(mode, dram_size_per_rank, dram_ranks))

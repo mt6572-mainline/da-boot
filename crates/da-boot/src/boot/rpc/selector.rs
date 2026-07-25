@@ -31,19 +31,6 @@ pub fn run_rpc_preloader(state: &mut State, mut port: Port) -> Result<()> {
 
     let mut payload = pl_payload()?;
 
-    if let Some(ref image) = state.lk {
-        let addr = image.file.upload_address();
-        if state
-            .params
-            .blacklist_reloc(addr..addr + image.file.len() as u32 + 1)
-            .is_err()
-        {
-            anyhow::bail!("Failed blacklisting range: {addr:#x}");
-        }
-
-        println!("Reserved memory: {addr:#x}");
-    }
-
     let mut payload = payload.to_mut();
     inject_params(&state, &mut payload)?;
     run_payload(da_addr, &payload, &mut port)?;
@@ -85,6 +72,8 @@ pub fn run_rpc_preloader(state: &mut State, mut port: Port) -> Result<()> {
         if !protocol.read_response().is_ok_and(|r| r.is_ack()) {
             anyhow::bail!("Failed blacklisting {addr:#x}");
         }
+
+        println!("Reserved memory: {addr:#x}");
 
         println!("Preparing boot argument for LK");
         let bootarg = get_for_soc(
@@ -215,7 +204,7 @@ pub fn run_rpc_preloader(state: &mut State, mut port: Port) -> Result<()> {
                 .extract()
                 .context("Failed to extract mt_part_generic_read")?;
             let mt_part_get_partition = match &state.soc {
-                SoC::MT6572 => MtPartGetPartition::new(&image.analyzer)
+                SoC::MT6572 | SoC::MT6582 => MtPartGetPartition::new(&image.analyzer)
                     .extract()
                     .context("Failed to extract mt_part_get_partition")?,
                 SoC::MT6595 => GetPart::new(&image.analyzer)

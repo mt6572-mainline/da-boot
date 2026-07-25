@@ -9,6 +9,7 @@ Boot binaries without flashing on MediaTek SoCs
 
 # SoC support
 - MT6572 is the former SoC and so has best support, tested across multiple devices
+- MT6582 tested only on Alcatel One Touch Pop C7 (OT-7041D)
 - MT6595 tested only on Lenovo Vibe X2
 
 # Subprojects
