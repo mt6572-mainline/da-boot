@@ -5,7 +5,7 @@ version = 4
 [[package]]
 name = "acon"
 version = "0.1.0"
-source = "git+https://github.com/rva3/acon/#5d4d38795044334ac9e46d583e43d809195675db"
+source = "git+https://github.com/rva3/acon/#e195544d023ecf8be68ca560523d6b4ed303010f"
 dependencies = [
  "ufmt",
 ]
